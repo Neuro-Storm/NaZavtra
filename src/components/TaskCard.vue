@@ -66,7 +66,6 @@ function completedSubtasks(task) {
   <div
     class="task-card"
     :class="{ completed: task.completed }"
-    @dblclick="emit('edit')"
   >
     <label class="checkbox-wrapper">
       <input
@@ -78,7 +77,7 @@ function completedSubtasks(task) {
       <span class="checkmark" />
     </label>
 
-    <div class="task-content">
+    <div class="task-content" @click="emit('edit')">
       <div class="task-title" :class="{ done: task.completed }">{{ task.title }}</div>
       <div class="task-meta">
         <span
@@ -194,6 +193,7 @@ function completedSubtasks(task) {
 .task-content {
   flex: 1;
   min-width: 0;
+  cursor: pointer;
 }
 
 .task-title {
@@ -278,10 +278,42 @@ function completedSubtasks(task) {
 .task-actions {
   display: flex;
   gap: 2px;
-  opacity: 0;
-  transition: opacity var(--transition);
   flex-shrink: 0;
   position: relative;
+}
+
+.action-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition);
+  font-size: 0.8rem;
+  opacity: 0.5;
+}
+.task-card:hover .action-btn {
+  opacity: 1;
+}
+.action-btn:hover {
+  background: var(--bg-hover);
+  opacity: 1;
+}
+.delete-btn:hover {
+  background: var(--priority-high-bg);
+}
+
+@media (max-width: 768px) {
+  .action-btn {
+    opacity: 1;
+    width: 36px;
+    height: 36px;
+    font-size: 1rem;
+  }
+  .task-card {
+    padding: 10px 12px;
+  }
 }
 .task-card:hover .task-actions {
   opacity: 1;
