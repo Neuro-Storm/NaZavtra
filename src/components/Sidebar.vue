@@ -1,0 +1,370 @@
+<script setup>
+import { ref } from 'vue'
+import { useTasksStore } from '../stores/tasks.js'
+
+const emit = defineEmits(['new-task'])
+const store = useTasksStore()
+
+const newProjectName = ref('')
+const showInput = ref(false)
+
+function addProject() {
+  const name = newProjectName.value.trim()
+  if (!name) return
+  store.addProject(name)
+  newProjectName.value = ''
+  showInput.value = false
+}
+
+function handleFileImport(e) {
+  const file = e.target.files[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = () => {
+    store.importData(reader.result)
+  }
+  reader.readAsText(file)
+  e.target.value = ''
+}
+
+function confirmDeleteProject(id, name) {
+  const count = store.tasks.filter(t => t.projectId === id).length
+  let msg = `Удалить проект «${name}»?`
+  if (count > 0) {
+    msg += `\n${count} задач${count === 1 ? 'а' : 'и'} будет удалено.`
+  }
+  if (confirm(msg)) {
+    store.deleteProject(id)
+  }
+}
+
+const closing = ref(false)
+
+function exitApp() {
+  closing.value = true
+  fetch('/api/exit?_=' + Date.now()).catch(() => {})
+}
+
+const fileInput = ref(null)
+</script>
+
+<template>
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <h2 class="logo">НаЗавтра</h2>
+    </div>
+
+    <nav class="nav">
+      <button
+        class="nav-item"
+        :class="{ active: !store.activeProjectId }"
+        @click="store.activeProjectId = null"
+      >
+        <span class="nav-icon">📋</span>
+        Все задачи
+        <span class="nav-count">{{ store.tasks.length }}</span>
+      </button>
+      <button
+        v-for="project in store.projects"
+        :key="project.id"
+        class="nav-item"
+        :class="{ active: store.activeProjectId === project.id }"
+        @click="store.activeProjectId = project.id"
+      >
+        <span class="nav-dot" :style="{ background: project.color }" />
+        <span class="truncate">{{ project.name }}</span>
+        <span class="nav-count">{{ store.tasks.filter(t => t.projectId === project.id).length }}</span>
+        <button
+          v-if="project.id !== 'inbox'"
+          class="nav-delete"
+          @click.stop="confirmDeleteProject(project.id, project.name)"
+          title="Удалить проект"
+        >×</button>
+      </button>
+    </nav>
+
+    <div class="sidebar-section">
+      <template v-if="!showInput">
+        <button class="btn-add" @click="showInput = true">
+          + Новый проект
+        </button>
+      </template>
+      <div v-else class="add-project-form">
+        <input
+          v-model="newProjectName"
+          class="input"
+          placeholder="Название проекта"
+          @keyup.enter="addProject"
+          @keyup.escape="showInput = false"
+          ref="projectInput"
+          autofocus
+        />
+        <div class="add-project-actions">
+          <button class="btn btn-sm btn-primary" @click="addProject">Добавить</button>
+          <button class="btn btn-sm" @click="showInput = false">Отмена</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="sidebar-footer">
+      <label class="footer-btn" title="Импорт JSON">
+        📥 Импорт
+        <input
+          ref="fileInput"
+          type="file"
+          accept=".json"
+          class="file-input"
+          @change="handleFileImport"
+        />
+      </label>
+      <button class="footer-btn" @click="store.exportData" title="Экспорт JSON">
+        📤 Экспорт
+      </button>
+      <button class="footer-btn exit-btn" @click="exitApp" title="Закрыть приложение">
+        ⏻ Выход
+      </button>
+    </div>
+  </aside>
+  <Teleport to="body">
+    <div v-if="closing" class="closing-overlay">
+      <div class="closing-card">
+        <div class="closing-icon">⏻</div>
+        <p>Приложение закрыто.</p>
+        <p class="closing-hint">Закройте вкладку браузера.</p>
+      </div>
+    </div>
+  </Teleport>
+</template>
+
+<style scoped>
+.sidebar {
+  width: var(--sidebar-width);
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.sidebar-header {
+  padding: 20px 16px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.logo {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: -0.03em;
+}
+
+.nav {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+  color: var(--text);
+  transition: all var(--transition);
+  text-align: left;
+  width: 100%;
+  position: relative;
+}
+.nav-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.nav-item.active {
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.nav-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.nav-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.nav-count {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  padding: 1px 6px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.nav-item.active .nav-count {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.nav-delete {
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 2px;
+  opacity: 0;
+  transition: opacity var(--transition);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+.nav-item:hover .nav-delete {
+  opacity: 0.6;
+}
+.nav-delete:hover {
+  opacity: 1 !important;
+  color: var(--priority-high);
+}
+
+.sidebar-section {
+  padding: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.btn-add {
+  width: 100%;
+  padding: 8px 10px;
+  text-align: left;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition);
+}
+.btn-add:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.add-project-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.add-project-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.input {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  outline: none;
+  transition: border-color var(--transition);
+}
+.input:focus {
+  border-color: var(--accent);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+  font-size: 0.85rem;
+  transition: all var(--transition);
+}
+.btn-sm { padding: 4px 10px; font-size: 0.8rem; }
+.btn-primary { background: var(--accent); color: white; }
+.btn-primary:hover { background: var(--accent-hover); }
+
+.sidebar-footer {
+  padding: 8px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.footer-btn {
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  transition: all var(--transition);
+  text-align: left;
+  cursor: pointer;
+  position: relative;
+}
+.footer-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.exit-btn {
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  padding-top: 10px;
+  color: var(--text-secondary);
+}
+.exit-btn:hover {
+  color: var(--priority-high);
+}
+
+.file-input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.closing-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+  animation: fadeIn 0.3s ease;
+}
+
+.closing-card {
+  text-align: center;
+}
+
+.closing-icon {
+  font-size: 3rem;
+  margin-bottom: 16px;
+}
+
+.closing-card p {
+  font-size: 1.1rem;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.closing-hint {
+  font-size: 0.9rem !important;
+  color: var(--text-secondary) !important;
+  margin-top: 8px !important;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+</style>
