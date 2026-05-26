@@ -7,6 +7,15 @@ function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
 }
 
+function now() {
+  return new Date().toISOString()
+}
+
+function ensureUpdatedAt(item) {
+  if (!item.updatedAt) item.updatedAt = now()
+  return item
+}
+
 function loadLocal() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
@@ -36,23 +45,34 @@ function postData(data) {
   }).catch(() => {})
 }
 
-const DEFAULT_PROJECTS = [{ id: 'inbox', name: 'Входящие', color: '#6b7280' }]
+const DEFAULT_PROJECTS = [{ id: 'inbox', name: 'Входящие', color: '#6b7280', updatedAt: new Date(0).toISOString() }]
 
 export const useTasksStore = defineStore('tasks', () => {
   const local = loadLocal()
 
-  const tasks = ref(local?.tasks ?? [])
-  const projects = ref(local?.projects ?? [...DEFAULT_PROJECTS])
+  const tasks = ref((local?.tasks ?? []).map(ensureUpdatedAt))
+  const projects = ref((local?.projects ?? [...DEFAULT_PROJECTS]).map(ensureUpdatedAt))
   const activeProjectId = ref(local?.activeProjectId ?? null)
   const searchQuery = ref('')
   const filterStatus = ref('all')
   const activeTaskId = ref(null)
 
+  window.addEventListener('storage', (e) => {
+    if (e.key === STORAGE_KEY && e.newValue) {
+      try {
+        const data = JSON.parse(e.newValue)
+        if (data.tasks) tasks.value = data.tasks.map(ensureUpdatedAt)
+        if (data.projects) projects.value = data.projects.map(ensureUpdatedAt)
+        if (data.activeProjectId) activeProjectId.value = data.activeProjectId
+      } catch {}
+    }
+  })
+
   if (import.meta.env.DEV) {
     fetchData().then(data => {
       if (data) {
-        tasks.value = data.tasks ?? []
-        projects.value = data.projects ?? [...DEFAULT_PROJECTS]
+        tasks.value = (data.tasks ?? []).map(ensureUpdatedAt)
+        projects.value = (data.projects ?? [...DEFAULT_PROJECTS]).map(ensureUpdatedAt)
         activeProjectId.value = data.activeProjectId ?? null
       }
     })
@@ -118,7 +138,8 @@ export const useTasksStore = defineStore('tasks', () => {
       completed: false,
       subtasks: data.subtasks ?? [],
       order: tasks.value.length,
-      createdAt: new Date().toISOString(),
+      createdAt: now(),
+      updatedAt: now(),
     }
     tasks.value.push(task)
     persist()
@@ -128,7 +149,7 @@ export const useTasksStore = defineStore('tasks', () => {
   function updateTask(id, data) {
     const idx = tasks.value.findIndex(t => t.id === id)
     if (idx === -1) return
-    Object.assign(tasks.value[idx], data)
+    Object.assign(tasks.value[idx], data, { updatedAt: now() })
     persist()
   }
 
@@ -142,13 +163,14 @@ export const useTasksStore = defineStore('tasks', () => {
     const task = tasks.value.find(t => t.id === id)
     if (!task) return
     task.completed = !task.completed
+    task.updatedAt = now()
     persist()
   }
 
   function reorderTasks(newOrder) {
     newOrder.forEach((id, idx) => {
       const task = tasks.value.find(t => t.id === id)
-      if (task) task.order = idx
+      if (task) { task.order = idx; task.updatedAt = now() }
     })
     persist()
   }
@@ -157,7 +179,7 @@ export const useTasksStore = defineStore('tasks', () => {
     const colors = ['#4f46e5', '#ef4444', '#f59e0b', '#22c55e', '#06b6d4', '#8b5cf6', '#ec4899']
     const usedColors = projects.value.map(p => p.color)
     const color = colors.find(c => !usedColors.includes(c)) ?? colors[0]
-    const project = { id: uid(), name, color }
+    const project = { id: uid(), name, color, updatedAt: now() }
     projects.value.push(project)
     persist()
     return project
@@ -190,10 +212,10 @@ export const useTasksStore = defineStore('tasks', () => {
     try {
       const data = typeof json === 'string' ? JSON.parse(json) : json
       if (data.tasks && Array.isArray(data.tasks)) {
-        tasks.value = data.tasks
+        tasks.value = data.tasks.map(ensureUpdatedAt)
       }
       if (data.projects && Array.isArray(data.projects)) {
-        projects.value = data.projects
+        projects.value = data.projects.map(ensureUpdatedAt)
       }
       persist()
       return true

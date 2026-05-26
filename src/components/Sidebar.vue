@@ -5,7 +5,7 @@ import { useTasksStore } from '../stores/tasks.js'
 const props = defineProps({
   open: { type: Boolean, default: false },
 })
-const emit = defineEmits(['new-task', 'close'])
+const emit = defineEmits(['new-task', 'close', 'settings'])
 const store = useTasksStore()
 
 const newProjectName = ref('')
@@ -45,7 +45,11 @@ const closing = ref(false)
 
 function exitApp() {
   closing.value = true
-  fetch('/api/exit?_=' + Date.now()).catch(() => {})
+  fetch('/api/exit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ confirm: true }),
+  }).catch(() => {})
 }
 
 const fileInput = ref(null)
@@ -123,6 +127,9 @@ const fileInput = ref(null)
       </label>
       <button class="footer-btn" @click="store.exportData" title="Экспорт JSON">
         📤 Экспорт
+      </button>
+      <button class="footer-btn" @click="emit('settings')" title="Настройки">
+        ⚙️ Настройки
       </button>
       <button class="footer-btn exit-btn" @click="exitApp" title="Закрыть приложение">
         ⏻ Выход

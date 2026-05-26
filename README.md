@@ -18,6 +18,8 @@ TODO-лист на Vue 3 с проектами, приоритетами, сро
 - Импорт / экспорт JSON
 - PWA: установка как приложение на телефон или ПК
 - **MCP сервер** — AI-агенты (opencode, OpenClaw) управляют задачами через 10 инструментов
+- ⚙️ **Настройки**: MCP toggle, смена порта, опциональное AES-256-GCM шифрование
+- 🔀 **Синхронизация вкладок** одного браузера (storage event)
 
 ## Стек
 
@@ -25,6 +27,7 @@ TODO-лист на Vue 3 с проектами, приоритетами, сро
 - [Vite](https://vitejs.dev/)
 - [Pinia](https://pinia.vuejs.org/) — состояние
 - [localStorage](https://developer.mozilla.org/ru/docs/Web/API/Window/localStorage) + File System — хранение данных
+- [Web Crypto API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API) — опциональное AES-256-GCM шифрование
 - [vite-plugin-pwa](https://vite-pwa-org.netlify.app/) — PWA
 - [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) — AI-интеграция
 
@@ -34,10 +37,18 @@ TODO-лист на Vue 3 с проектами, приоритетами, сро
 и автоматически синхронизируются с localStorage браузера.
 На GitHub Pages используется только localStorage.
 
+При включённом шифровании `data.json` шифруется AES-256-GCM через Web Crypto API.
+Ключ хранится в `~/.nazavtra/.nazavtra.key` (chmod 600) и не попадает в git.
+
+Изменения на одной вкладке автоматически применяются на всех других (storage event).
+
 ## MCP сервер
 
 В режиме разработки Vite-плагин (`vite-plugin-nazavtra-mcp.js`) запускает
 MCP-совместимый JSON-RPC endpoint на `/mcp`.
+
+Порт по умолчанию — `5174`, можно изменить в настройках (⚙️ → Порт).
+В конфигурации агента указывай актуальный порт:
 
 ### Подключение AI-агента
 
@@ -79,7 +90,7 @@ npm install
 npm run dev
 ```
 
-Открой http://localhost:5174 в браузере.
+Открой http://localhost:5174 в браузере (или порт из настроек).
 
 Или просто запусти `назавтра.bat` — откроется сразу в браузере без окна терминала.
 
@@ -105,13 +116,15 @@ src/
 ├── stores/tasks.js            # Хранилище задач и проектов
 ├── composables/
 │   ├── useTheme.js
-│   └── useKeyboardShortcuts.js
+│   ├── useKeyboardShortcuts.js
+│   └── useSettings.js         # Настройки (MCP, порт, шифрование)
 └── components/
     ├── Sidebar.vue            # Проекты, импорт/экспорт
     ├── TaskList.vue           # Поиск, фильтры, список
     ├── TaskCard.vue           # Карточка задачи
     ├── TaskForm.vue           # Модалка создания/редактирования
     ├── ThemeToggle.vue        # Переключатель темы
-    └── StatsPanel.vue         # Статистика
+    ├── StatsPanel.vue         # Статистика
+    └── SettingsPage.vue       # Модалка настроек
 vite-plugin-nazavtra-mcp.js    # MCP сервер (Vite plugin)
 ```

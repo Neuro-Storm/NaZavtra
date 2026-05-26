@@ -8,12 +8,14 @@ import TaskList from './components/TaskList.vue'
 import StatsPanel from './components/StatsPanel.vue'
 import ThemeToggle from './components/ThemeToggle.vue'
 import TaskForm from './components/TaskForm.vue'
+import SettingsPage from './components/SettingsPage.vue'
 
 const store = useTasksStore()
 const { theme, toggle } = useTheme()
 const showForm = ref(false)
 const editingTask = ref(null)
 const menuOpen = ref(false)
+const showSettings = ref(false)
 
 function openNewTask() {
   editingTask.value = null
@@ -41,6 +43,15 @@ function closeMenu() {
   menuOpen.value = false
 }
 
+function openSettings() {
+  showSettings.value = true
+  menuOpen.value = false
+}
+
+function closeSettings() {
+  showSettings.value = false
+}
+
 useKeyboardShortcuts({
   n: openNewTask,
   Escape: closeForm,
@@ -48,7 +59,7 @@ useKeyboardShortcuts({
 </script>
 
 <template>
-  <Sidebar :open="menuOpen" @close="closeMenu" @new-task="openNewTask" />
+  <Sidebar :open="menuOpen" @close="closeMenu" @new-task="openNewTask" @settings="openSettings" />
   <div v-if="menuOpen" class="sidebar-overlay" @click="closeMenu" />
   <main class="main">
     <header class="header">
@@ -74,6 +85,10 @@ useKeyboardShortcuts({
       v-if="showForm"
       :task="editingTask"
       @close="closeForm"
+    />
+    <SettingsPage
+      v-if="showSettings"
+      @close="closeSettings"
     />
   </Teleport>
 </template>

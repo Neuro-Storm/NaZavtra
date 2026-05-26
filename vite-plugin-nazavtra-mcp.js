@@ -1,49 +1,174 @@
 import { homedir } from 'os'
 import { join, dirname } from 'path'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from 'fs'
+import { randomBytes, createCipheriv, createDecipheriv, randomUUID } from 'crypto'
 
-const DATA_FILE = join(homedir(), '.nazavtra', 'data.json')
+const DATA_DIR = join(homedir(), '.nazavtra')
+const DATA_FILE = join(DATA_DIR, 'data.json')
+const SETTINGS_FILE = join(DATA_DIR, 'settings.json')
+const KEY_FILE = join(DATA_DIR, 'key')
 
-const COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4', '#6366f1', '#a855f7', '#ec4899']
-
+const DEFAULT_SETTINGS = { mcpEnabled: true, port: 5174, encryptEnabled: false }
 const DEFAULT_DATA = {
   tasks: [],
   projects: [{ id: 'inbox', name: 'Входящие', color: '#6b7280' }],
 }
 
+const COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4', '#6366f1', '#a855f7', '#ec4899']
+
+const MAX_TITLE_LENGTH = 500
+const MAX_DESC_LENGTH = 10_000
+const MAX_SUBTASK_TITLE_LENGTH = 200
+const MAX_SUBTASKS = 100
+const MAX_BODY_SIZE = 512_000
+const MAX_PROJECT_NAME_LENGTH = 200
+
 function uid() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
+  return randomUUID().slice(0, 8)
 }
+
+// ─── AES-256-GCM ───────────────────────────────────────────────
+
+function encrypt(text, key) {
+  const iv = randomBytes(16)
+  const cipher = createCipheriv('aes-256-gcm', key, iv)
+  let enc = cipher.update(text, 'utf8', 'hex')
+  enc += cipher.final('hex')
+  return JSON.stringify({ v: 1, iv: iv.toString('hex'), tag: cipher.getAuthTag().toString('hex'), data: enc })
+}
+
+function decrypt(encoded, key) {
+  const { iv, tag, data } = JSON.parse(encoded)
+  const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(iv, 'hex'))
+  decipher.setAuthTag(Buffer.from(tag, 'hex'))
+  let dec = decipher.update(data, 'hex', 'utf8')
+  dec += decipher.final('utf8')
+  return dec
+}
+
+function loadKey() {
+  if (process.env.NAZAVTRA_KEY) return Buffer.from(process.env.NAZAVTRA_KEY, 'hex')
+  try { return readFileSync(KEY_FILE) } catch { return null }
+}
+
+function ensureKey() {
+  let key = loadKey()
+  if (!key) {
+    key = randomBytes(32)
+    if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true })
+    writeFileSync(KEY_FILE, key)
+    try { chmodSync(KEY_FILE, 0o600) } catch {}
+  }
+  return key
+}
+
+// ─── Storage ────────────────────────────────────────────────────
 
 function loadData() {
   try {
     if (existsSync(DATA_FILE)) {
-      return JSON.parse(readFileSync(DATA_FILE, 'utf-8'))
+      const raw = readFileSync(DATA_FILE, 'utf-8')
+      const s = loadSettings()
+      if (s.encryptEnabled) {
+        try { return JSON.parse(decrypt(raw, ensureKey())) } catch { /* fallthrough to plaintext parse */ }
+      }
+      return JSON.parse(raw)
     }
   } catch {}
-  const dir = dirname(DATA_FILE)
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true })
   const data = JSON.parse(JSON.stringify(DEFAULT_DATA))
-  writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), 'utf-8')
+  saveData(data)
   return data
 }
 
 function saveData(data) {
-  const dir = dirname(DATA_FILE)
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-  writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), 'utf-8')
+  const s = loadSettings()
+  let output = JSON.stringify(data, null, 2)
+  if (s.encryptEnabled) {
+    output = encrypt(output, ensureKey())
+  }
+  if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true })
+  writeFileSync(DATA_FILE, output, 'utf-8')
 }
 
-// ─── Tool registry ───────────────────────────────────────────
+// ─── Settings ───────────────────────────────────────────────────
+
+function loadSettings() {
+  try {
+    if (existsSync(SETTINGS_FILE)) {
+      return { ...DEFAULT_SETTINGS, ...JSON.parse(readFileSync(SETTINGS_FILE, 'utf-8')) }
+    }
+  } catch {}
+  return { ...DEFAULT_SETTINGS }
+}
+
+function saveSettings(settings) {
+  if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true })
+  writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf-8')
+}
+
+function isDataFileEncrypted() {
+  try {
+    if (existsSync(DATA_FILE)) {
+      const firstBytes = readFileSync(DATA_FILE, 'utf-8').trimStart().slice(0, 20)
+      return firstBytes.startsWith('{"v":') || firstBytes.startsWith('{"iv":')
+    }
+  } catch {}
+  return false
+}
+
+// ─── Input validation ──────────────────────────────────────────
+
+function valString(v, maxLen, label) {
+  if (v == null) return null
+  if (typeof v !== 'string') return `${label} должен быть строкой`
+  if (v.length > maxLen) return `${label} максимум ${maxLen} символов`
+  return null
+}
+
+function valPriority(v) {
+  if (v == null) return null
+  if (![0, 1, 2].includes(v)) return 'priority должен быть 0 (низкий), 1 (средний) или 2 (высокий)'
+  return null
+}
+
+function valDueDate(v) {
+  if (v == null) return null
+  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return 'dueDate должен быть в формате YYYY-MM-DD'
+  return null
+}
+
+// ─── Origin guard ──────────────────────────────────────────────
+
+function checkOrigin(req, res, server) {
+  const origin = req.headers.origin || ''
+  if (!origin) return true
+
+  let port = 5174
+  try {
+    const addr = server.httpServer?.address()
+    if (addr && typeof addr === 'object') port = addr.port
+  } catch {}
+
+  const allowed = [
+    `http://localhost:${port}`,
+    `http://127.0.0.1:${port}`,
+  ]
+
+  if (allowed.includes(origin)) return true
+
+  res.writeHead(403, { 'Content-Type': 'text/plain' })
+  res.end('Forbidden')
+  return false
+}
+
+// ─── Tool registry ────────────────────────────────────────────
 
 const tools = [
   {
     name: 'nazavtra_list_projects',
     description: 'Список всех проектов',
-    inputSchema: {
-      type: 'object',
-      properties: {},
-    },
+    inputSchema: { type: 'object', properties: {} },
     handler: async () => {
       const { projects } = loadData()
       return { content: [{ type: 'text', text: JSON.stringify({ success: true, data: projects }) }] }
@@ -86,9 +211,7 @@ const tools = [
     description: 'Детальная информация о задаче по ID',
     inputSchema: {
       type: 'object',
-      properties: {
-        id: { type: 'string', description: 'ID задачи' },
-      },
+      properties: { id: { type: 'string', description: 'ID задачи' } },
       required: ['id'],
     },
     handler: async ({ id }) => {
@@ -115,8 +238,15 @@ const tools = [
       required: ['title'],
     },
     handler: async ({ title, priority, dueDate, projectId, description, subtasks }) => {
+      const err = valString(title, MAX_TITLE_LENGTH, 'title') || valPriority(priority) || valDueDate(dueDate) || valString(description, MAX_DESC_LENGTH, 'description')
+      if (err) return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: err }) }] }
       if (!title) return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'Название задачи обязательно' }) }] }
       const data = loadData()
+      const subArr = (subtasks ?? []).slice(0, MAX_SUBTASKS)
+      for (const s of subArr) {
+        const e = valString(s, MAX_SUBTASK_TITLE_LENGTH, 'subtask')
+        if (e) return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: e }) }] }
+      }
       const task = {
         id: uid(),
         title,
@@ -125,7 +255,7 @@ const tools = [
         dueDate: dueDate ?? null,
         projectId: projectId ?? 'inbox',
         description: description ?? null,
-        subtasks: (subtasks ?? []).map(s => ({ id: uid(), title: s, completed: false })),
+        subtasks: subArr.map(s => ({ id: uid(), title: s, completed: false })),
         createdAt: new Date().toISOString(),
         order: data.tasks.length,
       }
@@ -151,6 +281,8 @@ const tools = [
       required: ['id'],
     },
     handler: async ({ id, ...updates }) => {
+      const err = valString(updates.title, MAX_TITLE_LENGTH, 'title') || valPriority(updates.priority) || valDueDate(updates.dueDate) || valString(updates.description, MAX_DESC_LENGTH, 'description')
+      if (err) return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: err }) }] }
       const data = loadData()
       const task = data.tasks.find(t => t.id === id)
       if (!task) return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'Задача не найдена' }) }] }
@@ -205,6 +337,8 @@ const tools = [
       required: ['name'],
     },
     handler: async ({ name }) => {
+      const err = valString(name, MAX_PROJECT_NAME_LENGTH, 'name')
+      if (err) return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: err }) }] }
       if (!name) return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'Название проекта обязательно' }) }] }
       const data = loadData()
       const id = uid()
@@ -236,10 +370,7 @@ const tools = [
   {
     name: 'nazavtra_get_stats',
     description: 'Статистика по задачам: общее количество, активные, выполненные, просроченные',
-    inputSchema: {
-      type: 'object',
-      properties: {},
-    },
+    inputSchema: { type: 'object', properties: {} },
     handler: async () => {
       const { tasks } = loadData()
       const total = tasks.length
@@ -254,7 +385,7 @@ const tools = [
   },
 ]
 
-// ─── MCP JSON-RPC handler ────────────────────────────────────
+// ─── MCP JSON-RPC handler ─────────────────────────────────────
 
 function rpcError(id, code, message) {
   return { jsonrpc: '2.0', id, error: { code, message } }
@@ -274,9 +405,7 @@ async function handleMCP(body) {
   if (method === 'initialize') {
     return rpcResult(id, {
       protocolVersion: '2025-03-26',
-      capabilities: {
-        tools: {},
-      },
+      capabilities: { tools: {} },
       serverInfo: { name: 'НаЗавтра', version: '1.0.0' },
     })
   }
@@ -296,6 +425,10 @@ async function handleMCP(body) {
   }
 
   if (method === 'tools/call') {
+    const settings = loadSettings()
+    if (!settings.mcpEnabled) {
+      return rpcError(id, -32000, 'MCP server disabled')
+    }
     const tool = tools.find(t => t.name === params?.name)
     if (!tool) {
       return rpcError(id, -32601, `Tool not found: ${params?.name}`)
@@ -318,21 +451,28 @@ export default function nazavtraMCP() {
     name: 'vite-plugin-nazavtra-mcp',
 
     configureServer(server) {
+      // ── /mcp ──────────────────────────────────────────────
       server.middlewares.use('/mcp', async (req, res, next) => {
         if (req.method !== 'POST') return next()
+        if (!checkOrigin(req, res, server)) return
+
+        const len = parseInt(req.headers['content-length'] || '0')
+        if (len > MAX_BODY_SIZE) {
+          res.writeHead(413, { 'Content-Type': 'text/plain' })
+          res.end('Payload too large')
+          return
+        }
 
         let body = ''
         req.on('data', chunk => body += chunk)
         req.on('end', async () => {
           try {
             const result = await handleMCP(JSON.parse(body))
-
             if (!result) {
               res.writeHead(202, { 'Content-Type': 'application/json; charset=utf-8' })
               res.end('{}')
               return
             }
-
             const json = JSON.stringify(result)
             res.writeHead(200, {
               'Content-Type': 'application/json; charset=utf-8',
@@ -350,7 +490,10 @@ export default function nazavtraMCP() {
         })
       })
 
+      // ── /api/data ────────────────────────────────────────────
       server.middlewares.use('/api/data', async (req, res, next) => {
+        if (!checkOrigin(req, res, server)) return
+
         if (req.method === 'GET') {
           const data = loadData()
           const json = JSON.stringify(data)
@@ -368,7 +511,61 @@ export default function nazavtraMCP() {
           req.on('end', () => {
             try {
               const data = JSON.parse(body)
+              if (data.tasks && Array.isArray(data.tasks)) {
+                for (const t of data.tasks) {
+                  if (t.title && t.title.length > MAX_TITLE_LENGTH) {
+                    res.statusCode = 400
+                    res.end('Title too long')
+                    return
+                  }
+                  if (t.description && t.description.length > MAX_DESC_LENGTH) {
+                    res.statusCode = 400
+                    res.end('Description too long')
+                    return
+                  }
+                }
+              }
               saveData(data)
+              const json = JSON.stringify({ ok: true })
+              res.writeHead(200, {
+                'Content-Type': 'application/json; charset=utf-8',
+                'Content-Length': Buffer.byteLength(json),
+              })
+              res.end(json)
+            } catch {
+              res.statusCode = 400
+              res.end('Invalid JSON')
+            }
+          })
+          return
+        }
+
+        next()
+      })
+
+      // ── /api/settings ─────────────────────────────────────────
+      server.middlewares.use('/api/settings', async (req, res, next) => {
+        if (!checkOrigin(req, res, server)) return
+
+        if (req.method === 'GET') {
+          const settings = loadSettings()
+          const response = { ...settings, encryptedOnDisk: isDataFileEncrypted() }
+          const json = JSON.stringify(response)
+          res.writeHead(200, {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Content-Length': Buffer.byteLength(json),
+          })
+          res.end(json)
+          return
+        }
+
+        if (req.method === 'POST') {
+          let body = ''
+          req.on('data', chunk => body += chunk)
+          req.on('end', () => {
+            try {
+              const data = JSON.parse(body)
+              saveSettings(data)
               const json = JSON.stringify({ ok: true })
               res.writeHead(200, {
                 'Content-Type': 'application/json; charset=utf-8',
