@@ -7,7 +7,7 @@ function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
 }
 
-function loadData() {
+function loadLocal() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     return raw ? JSON.parse(raw) : null
@@ -16,28 +16,56 @@ function loadData() {
   }
 }
 
-function saveData(data) {
+function saveLocal(data) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
 }
 
-export const useTasksStore = defineStore('tasks', () => {
-  const saved = loadData()
+async function fetchData() {
+  try {
+    const res = await fetch('/api/data')
+    if (res.ok) return await res.json()
+  } catch {}
+  return null
+}
 
-  const tasks = ref(saved?.tasks ?? [])
-  const projects = ref(saved?.projects ?? [
-    { id: 'inbox', name: 'Входящие', color: '#6b7280' },
-  ])
-  const activeProjectId = ref(saved?.activeProjectId ?? null)
+function postData(data) {
+  fetch('/api/data', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  }).catch(() => {})
+}
+
+const DEFAULT_PROJECTS = [{ id: 'inbox', name: 'Входящие', color: '#6b7280' }]
+
+export const useTasksStore = defineStore('tasks', () => {
+  const local = loadLocal()
+
+  const tasks = ref(local?.tasks ?? [])
+  const projects = ref(local?.projects ?? [...DEFAULT_PROJECTS])
+  const activeProjectId = ref(local?.activeProjectId ?? null)
   const searchQuery = ref('')
   const filterStatus = ref('all')
   const activeTaskId = ref(null)
 
+  if (import.meta.env.DEV) {
+    fetchData().then(data => {
+      if (data) {
+        tasks.value = data.tasks ?? []
+        projects.value = data.projects ?? [...DEFAULT_PROJECTS]
+        activeProjectId.value = data.activeProjectId ?? null
+      }
+    })
+  }
+
   function persist() {
-    saveData({
+    const data = {
       tasks: tasks.value,
       projects: projects.value,
       activeProjectId: activeProjectId.value,
-    })
+    }
+    saveLocal(data)
+    if (import.meta.env.DEV) postData(data)
   }
 
   const filteredTasks = computed(() => {

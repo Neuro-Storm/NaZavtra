@@ -9,9 +9,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "vue": "^3.5.34",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "marked": "^18.0.4",
     "pinia": "^3.0.2",
-    "marked": "^18.0.4"
+    "vue": "^3.5.34"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.6",

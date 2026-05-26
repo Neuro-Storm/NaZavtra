@@ -1,11 +1,13 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { VitePWA } from 'vite-plugin-pwa'
+import nazavtraMCP from './vite-plugin-nazavtra-mcp.js'
 
 export default defineConfig({
   base: '/NaZavtra/',
   plugins: [
     vue(),
+    nazavtraMCP(),
     {
       name: 'exit-command',
       configureServer(server) {

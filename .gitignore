@@ -6,15 +6,22 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+vite.err
 
 node_modules
 dist
 dist-ssr
 *.local
 
+# Test artifacts
+req*.json
+
 # Backup files
 todo-backup-*.json
 NaZavtra-backup-*.json
+
+# Local MCP config
+opencode.json
 
 # Editor directories and files
 .vscode/*
