@@ -101,6 +101,33 @@ function handleDragEnd(evt) {
   flex-shrink: 0;
 }
 
+@media (max-width: 768px) {
+  .search-bar {
+    padding: 8px 12px;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .search-input {
+    min-width: 0;
+    width: 100%;
+  }
+  .filter-chips {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    width: 100%;
+  }
+  .filter-chips::-webkit-scrollbar {
+    display: none;
+  }
+  .task-list {
+    padding: 4px 12px 12px;
+  }
+  .empty-state {
+    padding: 32px 16px;
+  }
+}
+
 .chip {
   padding: 6px 12px;
   border-radius: 999px;

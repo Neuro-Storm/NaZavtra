@@ -13,6 +13,7 @@ const store = useTasksStore()
 const { theme, toggle } = useTheme()
 const showForm = ref(false)
 const editingTask = ref(null)
+const menuOpen = ref(false)
 
 function openNewTask() {
   editingTask.value = null
@@ -32,6 +33,14 @@ function closeForm() {
   editingTask.value = null
 }
 
+function toggleMenu() {
+  menuOpen.value = !menuOpen.value
+}
+
+function closeMenu() {
+  menuOpen.value = false
+}
+
 useKeyboardShortcuts({
   n: openNewTask,
   Escape: closeForm,
@@ -39,16 +48,22 @@ useKeyboardShortcuts({
 </script>
 
 <template>
-  <Sidebar @new-task="openNewTask" />
+  <Sidebar :open="menuOpen" @close="closeMenu" @new-task="openNewTask" />
+  <div v-if="menuOpen" class="sidebar-overlay" @click="closeMenu" />
   <main class="main">
     <header class="header">
       <div class="header-left">
+        <button class="burger" @click="toggleMenu" aria-label="Меню">
+          <span class="burger-line" />
+          <span class="burger-line" />
+          <span class="burger-line" />
+        </button>
         <h1 class="title">{{ store.activeProject?.name ?? 'Все задачи' }}</h1>
         <span class="task-count">{{ store.filteredTasks.length }}</span>
       </div>
       <div class="header-actions">
         <ThemeToggle :theme="theme" @toggle="toggle" />
-        <button class="btn btn-primary" @click="openNewTask">+ Новая задача</button>
+        <button class="btn btn-primary" @click="openNewTask">+</button>
       </div>
     </header>
     <TaskList @edit="openEditTask" @new-task="openNewTask" />
@@ -85,6 +100,30 @@ useKeyboardShortcuts({
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
+}
+
+.burger {
+  display: none;
+  width: 32px;
+  height: 32px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+.burger:hover {
+  background: var(--bg-hover);
+}
+.burger-line {
+  display: block;
+  width: 18px;
+  height: 2px;
+  background: var(--text);
+  border-radius: 2px;
+  transition: transform var(--transition);
 }
 
 .title {
@@ -92,6 +131,9 @@ useKeyboardShortcuts({
   font-weight: 600;
   color: var(--text-primary);
   letter-spacing: -0.02em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .task-count {
@@ -101,12 +143,18 @@ useKeyboardShortcuts({
   background: var(--bg-tertiary);
   padding: 2px 8px;
   border-radius: 999px;
+  flex-shrink: 0;
 }
 
 .header-actions {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
+}
+
+.sidebar-overlay {
+  display: none;
 }
 
 .btn {
@@ -130,15 +178,31 @@ useKeyboardShortcuts({
 }
 
 @media (max-width: 768px) {
+  .burger {
+    display: flex;
+  }
+
   .header {
-    padding: 14px 16px 12px;
+    padding: 10px 12px;
   }
   .title {
-    font-size: 1.2rem;
+    font-size: 1.05rem;
   }
   .header-actions .btn {
-    padding: 6px 12px;
-    font-size: 0.8rem;
+    padding: 8px 14px;
+    font-size: 1rem;
+  }
+  .header-actions .btn span {
+    display: none;
+  }
+
+  .sidebar-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.3);
+    z-index: 90;
+    backdrop-filter: blur(2px);
   }
 }
 </style>

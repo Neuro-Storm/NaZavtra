@@ -387,4 +387,25 @@ select.input {
 .btn-sm { padding: 6px 10px; font-size: 0.8rem; }
 .btn-primary { background: var(--accent); color: white; }
 .btn-primary:hover { background: var(--accent-hover); }
+
+@media (max-width: 640px) {
+  .backdrop {
+    padding: 0;
+    backdrop-filter: none;
+    background: var(--bg);
+  }
+  .modal {
+    max-width: none;
+    max-height: none;
+    height: 100dvh;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .modal-header {
+    padding: 16px 20px 0;
+  }
+  .modal-body {
+    padding: 16px 20px 20px;
+  }
+}
 </style>

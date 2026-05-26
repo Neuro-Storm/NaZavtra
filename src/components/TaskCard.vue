@@ -287,6 +287,20 @@ function completedSubtasks(task) {
   opacity: 1;
 }
 
+@media (max-width: 768px) {
+  .task-actions {
+    opacity: 1;
+  }
+  .action-btn {
+    width: 36px;
+    height: 36px;
+    font-size: 1rem;
+  }
+  .task-card {
+    padding: 10px 12px;
+  }
+}
+
 .action-btn {
   width: 28px;
   height: 28px;

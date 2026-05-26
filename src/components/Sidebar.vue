@@ -2,7 +2,10 @@
 import { ref } from 'vue'
 import { useTasksStore } from '../stores/tasks.js'
 
-const emit = defineEmits(['new-task'])
+const props = defineProps({
+  open: { type: Boolean, default: false },
+})
+const emit = defineEmits(['new-task', 'close'])
 const store = useTasksStore()
 
 const newProjectName = ref('')
@@ -49,16 +52,17 @@ const fileInput = ref(null)
 </script>
 
 <template>
-  <aside class="sidebar">
+  <aside class="sidebar" :class="{ open: props.open }">
     <div class="sidebar-header">
       <h2 class="logo">НаЗавтра</h2>
+      <button class="close-sidebar" @click="emit('close')">×</button>
     </div>
 
     <nav class="nav">
       <button
         class="nav-item"
         :class="{ active: !store.activeProjectId }"
-        @click="store.activeProjectId = null"
+        @click="store.activeProjectId = null; emit('close')"
       >
         <span class="nav-icon">📋</span>
         Все задачи
@@ -69,7 +73,7 @@ const fileInput = ref(null)
         :key="project.id"
         class="nav-item"
         :class="{ active: store.activeProjectId === project.id }"
-        @click="store.activeProjectId = project.id"
+        @click="store.activeProjectId = project.id; emit('close')"
       >
         <span class="nav-dot" :style="{ background: project.color }" />
         <span class="truncate">{{ project.name }}</span>
@@ -150,6 +154,24 @@ const fileInput = ref(null)
 .sidebar-header {
   padding: 20px 16px 12px;
   border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.close-sidebar {
+  display: none;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  font-size: 1.3rem;
+  color: var(--text-secondary);
+}
+.close-sidebar:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .logo {
@@ -366,5 +388,29 @@ const fileInput = ref(null)
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+
+@media (max-width: 768px) {
+  .sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 100;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    box-shadow: var(--shadow-lg);
+  }
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  .close-sidebar {
+    display: flex;
+  }
+
+  .nav-delete {
+    opacity: 0.6;
+  }
 }
 </style>

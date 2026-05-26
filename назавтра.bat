@@ -1,4 +1,4 @@
 @echo off
 cd /d "%~dp0"
-wscript.exe "%~dp0задачи.vbs"
+wscript.exe "%~dp0назавтра.vbs"
 exit

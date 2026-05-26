@@ -60,4 +60,17 @@ const store = useTasksStore()
   color: var(--text-secondary);
   font-weight: 500;
 }
+
+@media (max-width: 768px) {
+  .stats {
+    padding: 8px 12px;
+    gap: 12px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .stats::-webkit-scrollbar {
+    display: none;
+  }
+}
 </style>
