@@ -38,6 +38,11 @@ function handleDragEnd(evt) {
           :class="{ active: store.filterStatus === 'completed' }"
           @click="store.filterStatus = 'completed'"
         >Завершённые</button>
+        <button
+          class="chip"
+          :class="{ active: store.filterStatus === 'recurring' }"
+          @click="store.filterStatus = 'recurring'"
+        >Повторяющиеся</button>
       </div>
     </div>
 

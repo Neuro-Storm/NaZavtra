@@ -47,6 +47,32 @@ function postData(data) {
 
 const DEFAULT_PROJECTS = [{ id: 'inbox', name: 'Входящие', color: '#6b7280', updatedAt: new Date(0).toISOString() }]
 
+function getNextDueDate(task) {
+  if (!task.recurring || !task.dueDate) return null
+  const d = new Date(task.dueDate + 'T00:00:00Z')
+  const r = task.recurring
+
+  if (r.type === 'daily') {
+    d.setUTCDate(d.getUTCDate() + 1)
+  } else if (r.type === 'interval') {
+    d.setUTCDate(d.getUTCDate() + (r.interval || 1))
+  } else if (r.type === 'weekdays') {
+    const days = r.weekdays?.length ? r.weekdays : [1, 2, 3, 4, 5]
+    for (let i = 1; i <= 7; i++) {
+      const next = new Date(d)
+      next.setUTCDate(d.getUTCDate() + i)
+      if (days.includes(next.getUTCDay())) return next.toISOString().slice(0, 10)
+    }
+  } else if (r.type === 'weekly') {
+    d.setUTCDate(d.getUTCDate() + 7 * (r.interval || 1))
+  } else if (r.type === 'monthly') {
+    const day = d.getUTCDate()
+    d.setUTCMonth(d.getUTCMonth() + 1)
+    d.setUTCDate(Math.min(day, new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate()))
+  }
+  return d.toISOString().slice(0, 10)
+}
+
 export const useTasksStore = defineStore('tasks', () => {
   const local = loadLocal()
 
@@ -91,6 +117,16 @@ export const useTasksStore = defineStore('tasks', () => {
   const filteredTasks = computed(() => {
     let list = tasks.value
 
+    if (activeProjectId.value === 'recurring') {
+      list = list.filter(t => t.recurring && !t.completed)
+      return [...list].sort((a, b) => {
+        const timeA = a.recurring?.time || '99:99'
+        const timeB = b.recurring?.time || '99:99'
+        if (timeA !== timeB) return timeA.localeCompare(timeB)
+        return (a.order ?? 0) - (b.order ?? 0)
+      })
+    }
+
     if (activeProjectId.value) {
       list = list.filter(t => t.projectId === activeProjectId.value)
     }
@@ -107,14 +143,23 @@ export const useTasksStore = defineStore('tasks', () => {
       list = list.filter(t => !t.completed)
     } else if (filterStatus.value === 'completed') {
       list = list.filter(t => t.completed)
+    } else if (filterStatus.value === 'recurring') {
+      list = list.filter(t => t.recurring)
     }
 
-    return list.sort((a, b) => a.order - b.order)
+    return [...list].sort((a, b) => a.order - b.order)
   })
 
-  const activeProject = computed(() =>
-    projects.value.find(p => p.id === activeProjectId.value)
+  const recurringTasks = computed(() =>
+    tasks.value.filter(t => t.recurring && !t.completed)
   )
+
+  const activeProject = computed(() => {
+    if (activeProjectId.value === 'recurring') {
+      return { id: 'recurring', name: 'Повторяющиеся', color: '#8b5cf6' }
+    }
+    return projects.value.find(p => p.id === activeProjectId.value)
+  })
 
   const stats = computed(() => {
     const total = tasks.value.length
@@ -136,7 +181,9 @@ export const useTasksStore = defineStore('tasks', () => {
       priority: data.priority ?? 1,
       dueDate: data.dueDate ?? null,
       completed: false,
+      completedCount: 0,
       subtasks: data.subtasks ?? [],
+      recurring: data.recurring ?? null,
       order: tasks.value.length,
       createdAt: now(),
       updatedAt: now(),
@@ -160,10 +207,27 @@ export const useTasksStore = defineStore('tasks', () => {
   }
 
   function toggleTask(id) {
-    const task = tasks.value.find(t => t.id === id)
-    if (!task) return
-    task.completed = !task.completed
-    task.updatedAt = now()
+    const idx = tasks.value.findIndex(t => t.id === id)
+    if (idx === -1) return
+    const task = tasks.value[idx]
+
+    if (task.recurring && !task.completed) {
+      const nextDate = getNextDueDate(task)
+      if (nextDate) {
+        tasks.value[idx] = {
+          ...task,
+          dueDate: nextDate,
+          completedCount: (task.completedCount || 0) + 1,
+          subtasks: (task.subtasks ?? []).map(s => ({ ...s, completed: false })),
+          updatedAt: now(),
+        }
+      } else {
+        tasks.value[idx] = { ...task, completed: !task.completed, updatedAt: now() }
+      }
+    } else {
+      tasks.value[idx] = { ...task, completed: !task.completed, updatedAt: now() }
+    }
+
     persist()
   }
 
@@ -232,6 +296,7 @@ export const useTasksStore = defineStore('tasks', () => {
     filterStatus,
     activeTaskId,
     filteredTasks,
+    recurringTasks,
     activeProject,
     stats,
     addTask,

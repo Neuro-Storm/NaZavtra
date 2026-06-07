@@ -73,6 +73,15 @@ const fileInput = ref(null)
         <span class="nav-count">{{ store.tasks.length }}</span>
       </button>
       <button
+        class="nav-item"
+        :class="{ active: store.activeProjectId === 'recurring' }"
+        @click="store.activeProjectId = 'recurring'; emit('close')"
+      >
+        <span class="nav-icon">🔄</span>
+        Повторяющиеся
+        <span class="nav-count">{{ store.recurringTasks.length }}</span>
+      </button>
+      <button
         v-for="project in store.projects"
         :key="project.id"
         class="nav-item"

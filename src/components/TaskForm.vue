@@ -1,5 +1,5 @@
 ﻿<script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { useTasksStore } from '../stores/tasks.js'
 
 const props = defineProps({
@@ -18,6 +18,72 @@ const subtasks = ref([])
 const newSubtaskTitle = ref('')
 const isEditing = ref(false)
 
+const recurringType = ref(null)
+const recurringInterval = ref(1)
+const recurringWeekdays = ref([1, 2, 3, 4, 5])
+const recurringTime = ref('')
+const recurringDuration = ref(null)
+
+const presets = [
+  { label: 'Каждый день', type: 'daily' },
+  { label: 'По будням', type: 'weekdays', weekdays: [1, 2, 3, 4, 5] },
+  { label: 'Пн Ср Пт', type: 'weekdays', weekdays: [1, 3, 5] },
+  { label: 'Каждую неделю', type: 'weekly', interval: 1 },
+  { label: 'Каждые 2 дня', type: 'interval', interval: 2 },
+  { label: 'Каждый месяц', type: 'monthly' },
+]
+
+const weekdayLabels = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб']
+
+function applyPreset(preset) {
+  recurringType.value = preset.type
+  recurringInterval.value = preset.interval ?? 1
+  recurringWeekdays.value = preset.weekdays ?? [1, 2, 3, 4, 5]
+  if (!dueDate.value) {
+    dueDate.value = new Date().toISOString().slice(0, 10)
+  }
+}
+
+function clearRecurring() {
+  recurringType.value = null
+  recurringInterval.value = 1
+  recurringWeekdays.value = [1, 2, 3, 4, 5]
+  recurringTime.value = ''
+  recurringDuration.value = null
+}
+
+function toggleWeekday(d) {
+  const idx = recurringWeekdays.value.indexOf(d)
+  if (idx >= 0) {
+    recurringWeekdays.value.splice(idx, 1)
+  } else {
+    recurringWeekdays.value.push(d)
+    recurringWeekdays.value.sort()
+  }
+}
+
+const isPresetActive = (p) => {
+  if (recurringType.value !== p.type) return false
+  if (p.weekdays && JSON.stringify(recurringWeekdays.value) !== JSON.stringify(p.weekdays)) return false
+  if (p.interval && recurringInterval.value !== p.interval) return false
+  if (p.weekdays || p.interval) return true
+  return true
+}
+
+const recurringObject = computed(() => {
+  if (!recurringType.value) return null
+  const obj = { type: recurringType.value }
+  if (recurringType.value === 'interval' || recurringType.value === 'weekly') {
+    obj.interval = recurringInterval.value || 1
+  }
+  if (recurringType.value === 'weekdays' || recurringType.value === 'weekly') {
+    obj.weekdays = [...recurringWeekdays.value]
+  }
+  if (recurringTime.value) obj.time = recurringTime.value
+  if (recurringDuration.value) obj.duration = recurringDuration.value
+  return obj
+})
+
 watch(() => props.task, (task) => {
   if (task) {
     isEditing.value = true
@@ -27,6 +93,15 @@ watch(() => props.task, (task) => {
     projectId.value = task.projectId ?? null
     dueDate.value = task.dueDate ? task.dueDate.slice(0, 10) : ''
     subtasks.value = task.subtasks?.map(s => ({ ...s })) ?? []
+    if (task.recurring) {
+      recurringType.value = task.recurring.type
+      recurringInterval.value = task.recurring.interval ?? 1
+      recurringWeekdays.value = task.recurring.weekdays ?? [1, 2, 3, 4, 5]
+      recurringTime.value = task.recurring.time ?? ''
+      recurringDuration.value = task.recurring.duration ?? null
+    } else {
+      clearRecurring()
+    }
   } else {
     isEditing.value = false
     title.value = ''
@@ -35,6 +110,7 @@ watch(() => props.task, (task) => {
     projectId.value = store.activeProjectId ?? null
     dueDate.value = ''
     subtasks.value = []
+    clearRecurring()
   }
 }, { immediate: true })
 
@@ -51,6 +127,10 @@ function removeSubtask(id) {
 
 function handleSubmit() {
   if (!title.value.trim()) return
+  if (recurringObject.value && !dueDate.value) {
+    alert('Для повторяющейся задачи нужно указать срок')
+    return
+  }
 
   const data = {
     title: title.value.trim(),
@@ -59,6 +139,7 @@ function handleSubmit() {
     projectId: projectId.value,
     dueDate: dueDate.value || null,
     subtasks: subtasks.value,
+    recurring: recurringObject.value,
   }
 
   if (isEditing.value) {
@@ -126,6 +207,73 @@ watch(() => props.task, () => {
               :value="p.id"
             >{{ p.name }}</option>
           </select>
+        </div>
+
+        <div class="field">
+          <label class="label">Повтор</label>
+          <div class="recurring-presets">
+            <button
+              v-for="p in presets"
+              :key="p.label"
+              type="button"
+              class="chip"
+              :class="{ active: isPresetActive(p) }"
+              @click="applyPreset(p)"
+            >{{ p.label }}</button>
+            <button
+              type="button"
+              class="chip"
+              :class="{ active: !recurringType }"
+              @click="clearRecurring"
+            >Не повторять</button>
+          </div>
+          <template v-if="recurringType">
+            <div v-if="recurringType === 'interval'" class="recurring-detail">
+              <label class="sublabel">Каждые</label>
+              <input
+                v-model.number="recurringInterval"
+                type="number"
+                class="input input-sm"
+                min="1"
+                max="365"
+              />
+              <span class="sublabel">дн.</span>
+            </div>
+            <div v-if="recurringType === 'weekly'" class="recurring-detail">
+              <label class="sublabel">Каждые</label>
+              <input
+                v-model.number="recurringInterval"
+                type="number"
+                class="input input-sm"
+                min="1"
+                max="52"
+              />
+              <span class="sublabel">нед.</span>
+            </div>
+            <div v-if="recurringType === 'weekdays' || recurringType === 'weekly'" class="weekday-picker">
+              <button
+                v-for="(label, idx) in weekdayLabels"
+                :key="idx"
+                type="button"
+                class="weekday-btn"
+                :class="{ active: recurringWeekdays.includes(idx) }"
+                @click="toggleWeekday(idx)"
+              >{{ label }}</button>
+            </div>
+            <div class="recurring-detail">
+              <label class="sublabel">Время</label>
+              <input v-model="recurringTime" type="time" class="input input-sm" />
+              <label class="sublabel" style="margin-left:8px">Мин.</label>
+              <input
+                v-model.number="recurringDuration"
+                type="number"
+                class="input input-sm"
+                min="1"
+                max="480"
+                placeholder="—"
+              />
+            </div>
+          </template>
         </div>
 
         <div class="field">
@@ -387,6 +535,75 @@ select.input {
 .btn-sm { padding: 6px 10px; font-size: 0.8rem; }
 .btn-primary { background: var(--accent); color: white; }
 .btn-primary:hover { background: var(--accent-hover); }
+
+.recurring-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.chip {
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  transition: all var(--transition);
+  white-space: nowrap;
+}
+.chip:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.chip.active {
+  background: var(--accent);
+  color: white;
+}
+
+.recurring-detail {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.sublabel {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.input-sm {
+  width: 70px;
+  padding: 6px 8px;
+  font-size: 0.85rem;
+}
+
+.weekday-picker {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.weekday-btn {
+  width: 36px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  transition: all var(--transition);
+}
+.weekday-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.weekday-btn.active {
+  background: var(--accent);
+  color: white;
+}
 
 @media (max-width: 640px) {
   .backdrop {

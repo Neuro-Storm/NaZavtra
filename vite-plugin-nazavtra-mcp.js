@@ -138,6 +138,46 @@ function valDueDate(v) {
   return null
 }
 
+function valRecurring(v) {
+  if (v == null) return null
+  if (typeof v !== 'object') return 'recurring должен быть объектом'
+  const types = ['daily', 'weekdays', 'weekly', 'interval', 'monthly']
+  if (!types.includes(v.type)) return `recurring.type должен быть одним из: ${types.join(', ')}`
+  if (v.interval != null && (typeof v.interval !== 'number' || v.interval < 1)) return 'recurring.interval должен быть числом >= 1'
+  if (v.weekdays != null) {
+    if (!Array.isArray(v.weekdays)) return 'recurring.weekdays должен быть массивом'
+    if (v.weekdays.some(d => typeof d !== 'number' || d < 0 || d > 6)) return 'recurring.weekdays: дни 0-6 (0=Вс)'
+  }
+  if (v.time != null && (typeof v.time !== 'string' || !/^\d{2}:\d{2}$/.test(v.time))) return 'recurring.time в формате HH:MM'
+  if (v.duration != null && (typeof v.duration !== 'number' || v.duration < 1)) return 'recurring.duration минуты >= 1'
+  return null
+}
+
+function getNextDueDate(task) {
+  if (!task.recurring || !task.dueDate) return null
+  const d = new Date(task.dueDate + 'T00:00:00Z')
+  const r = task.recurring
+  if (r.type === 'daily') {
+    d.setUTCDate(d.getUTCDate() + 1)
+  } else if (r.type === 'interval') {
+    d.setUTCDate(d.getUTCDate() + (r.interval || 1))
+  } else if (r.type === 'weekdays') {
+    const days = r.weekdays?.length ? r.weekdays : [1, 2, 3, 4, 5]
+    for (let i = 1; i <= 7; i++) {
+      const next = new Date(d)
+      next.setUTCDate(d.getUTCDate() + i)
+      if (days.includes(next.getUTCDay())) return next.toISOString().slice(0, 10)
+    }
+  } else if (r.type === 'weekly') {
+    d.setUTCDate(d.getUTCDate() + 7 * (r.interval || 1))
+  } else if (r.type === 'monthly') {
+    const day = d.getUTCDate()
+    d.setUTCMonth(d.getUTCMonth() + 1)
+    d.setUTCDate(Math.min(day, new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate()))
+  }
+  return d.toISOString().slice(0, 10)
+}
+
 // ─── Origin guard ──────────────────────────────────────────────
 
 function checkOrigin(req, res, server) {
@@ -181,7 +221,7 @@ const tools = [
       type: 'object',
       properties: {
         projectId: { type: 'string', description: 'ID проекта для фильтрации' },
-        status: { type: 'string', enum: ['all', 'active', 'completed', 'overdue'], description: 'Статус: all, active, completed, overdue' },
+        status: { type: 'string', enum: ['all', 'active', 'completed', 'overdue', 'recurring'], description: 'Статус: all, active, completed, overdue, recurring' },
         search: { type: 'string', description: 'Поиск по тексту задачи и описанию' },
       },
     },
@@ -191,6 +231,7 @@ const tools = [
       if (projectId) filtered = filtered.filter(t => t.projectId === projectId)
       if (status === 'active') filtered = filtered.filter(t => !t.completed)
       if (status === 'completed') filtered = filtered.filter(t => t.completed)
+      if (status === 'recurring') filtered = filtered.filter(t => t.recurring)
       if (status === 'overdue') filtered = filtered.filter(t => {
         if (t.completed || !t.dueDate) return false
         return new Date(t.dueDate) < new Date(new Date().toDateString())
@@ -234,13 +275,26 @@ const tools = [
         projectId: { type: 'string', description: 'ID проекта (по умолчанию inbox)' },
         description: { type: 'string', description: 'Описание в Markdown' },
         subtasks: { type: 'array', items: { type: 'string' }, description: 'Названия подзадач' },
+        recurring: {
+          type: 'object',
+          description: 'Правило повтора',
+          properties: {
+            type: { type: 'string', enum: ['daily', 'weekdays', 'weekly', 'interval', 'monthly'] },
+            interval: { type: 'number', description: 'Каждые N дней/недель' },
+            weekdays: { type: 'array', items: { type: 'number' }, description: 'Дни недели 0-6 (0=Вс)' },
+            time: { type: 'string', description: 'Время HH:MM' },
+            duration: { type: 'number', description: 'Длительность в минутах' },
+          },
+          required: ['type'],
+        },
       },
       required: ['title'],
     },
-    handler: async ({ title, priority, dueDate, projectId, description, subtasks }) => {
-      const err = valString(title, MAX_TITLE_LENGTH, 'title') || valPriority(priority) || valDueDate(dueDate) || valString(description, MAX_DESC_LENGTH, 'description')
+    handler: async ({ title, priority, dueDate, projectId, description, subtasks, recurring }) => {
+      const err = valString(title, MAX_TITLE_LENGTH, 'title') || valPriority(priority) || valDueDate(dueDate) || valString(description, MAX_DESC_LENGTH, 'description') || valRecurring(recurring)
       if (err) return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: err }) }] }
       if (!title) return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'Название задачи обязательно' }) }] }
+      if (recurring && !dueDate) return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'Повторяющаяся задача требует dueDate' }) }] }
       const data = loadData()
       const subArr = (subtasks ?? []).slice(0, MAX_SUBTASKS)
       for (const s of subArr) {
@@ -256,6 +310,7 @@ const tools = [
         projectId: projectId ?? 'inbox',
         description: description ?? null,
         subtasks: subArr.map(s => ({ id: uid(), title: s, completed: false })),
+        recurring: recurring ?? null,
         createdAt: new Date().toISOString(),
         order: data.tasks.length,
       }
@@ -277,11 +332,22 @@ const tools = [
         projectId: { type: 'string', description: 'ID проекта' },
         description: { type: 'string', description: 'Описание или null' },
         completed: { type: 'boolean', description: 'Статус выполнения' },
+        recurring: {
+          type: 'object',
+          description: 'Правило повтора или null чтобы убрать',
+          properties: {
+            type: { type: 'string', enum: ['daily', 'weekdays', 'weekly', 'interval', 'monthly'] },
+            interval: { type: 'number' },
+            weekdays: { type: 'array', items: { type: 'number' } },
+            time: { type: 'string' },
+            duration: { type: 'number' },
+          },
+        },
       },
       required: ['id'],
     },
     handler: async ({ id, ...updates }) => {
-      const err = valString(updates.title, MAX_TITLE_LENGTH, 'title') || valPriority(updates.priority) || valDueDate(updates.dueDate) || valString(updates.description, MAX_DESC_LENGTH, 'description')
+      const err = valString(updates.title, MAX_TITLE_LENGTH, 'title') || valPriority(updates.priority) || valDueDate(updates.dueDate) || valString(updates.description, MAX_DESC_LENGTH, 'description') || valRecurring(updates.recurring)
       if (err) return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: err }) }] }
       const data = loadData()
       const task = data.tasks.find(t => t.id === id)
@@ -313,7 +379,7 @@ const tools = [
   },
   {
     name: 'nazavtra_toggle_task',
-    description: 'Переключить выполнение задачи (выполнена/не выполнена)',
+    description: 'Переключить выполнение задачи. Для повторяющихся — перепланирует на следующую дату.',
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string', description: 'ID задачи' } },
@@ -323,7 +389,20 @@ const tools = [
       const data = loadData()
       const task = data.tasks.find(t => t.id === id)
       if (!task) return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'Задача не найдена' }) }] }
-      task.completed = !task.completed
+
+      if (task.recurring && !task.completed) {
+        const nextDate = getNextDueDate(task)
+        if (nextDate) {
+          task.dueDate = nextDate
+          task.completedCount = (task.completedCount || 0) + 1
+          task.subtasks = (task.subtasks ?? []).map(s => ({ ...s, completed: false }))
+        } else {
+          task.completed = !task.completed
+        }
+      } else {
+        task.completed = !task.completed
+      }
+
       saveData(data)
       return { content: [{ type: 'text', text: JSON.stringify({ success: true, data: task }) }] }
     },

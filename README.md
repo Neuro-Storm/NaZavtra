@@ -16,6 +16,7 @@ TODO-лист на Vue 3 с проектами, приоритетами, сро
 - Статистика: всего, активных, готово, просрочено
 - Горячие клавиши: `N` — новая задача, `Esc` — закрыть
 - Импорт / экспорт JSON
+- **Повторяющиеся задачи**: пресеты (каждый день, по будням, Пн Ср Пт…), дни недели, время, длительность; секция «Повторяющиеся» в sidebar с сортировкой по времени; при завершении дата автоматически сдвигается на следующее выполнение
 - PWA: установка как приложение на телефон или ПК
 - **MCP сервер** — AI-агенты (opencode, OpenClaw) управляют задачами через 10 инструментов
 - ⚙️ **Настройки**: MCP toggle, смена порта, опциональное AES-256-GCM шифрование
@@ -71,9 +72,9 @@ MCP-совместимый JSON-RPC endpoint на `/mcp`.
 | Инструмент | Что делает |
 |-----------|-----------|
 | `nazavtra_list_projects` | Список проектов |
-| `nazavtra_list_tasks` | Задачи с фильтрацией (project, status: all/active/completed/overdue, search) |
+| `nazavtra_list_tasks` | Задачи с фильтрацией (project, status: all/active/completed/overdue/recurring, search) |
 | `nazavtra_get_task` | Детали задачи по ID с именем проекта |
-| `nazavtra_create_task` | Создать задачу (title, priority, dueDate, project, description, subtasks) |
+| `nazavtra_create_task` | Создать задачу (title, priority, dueDate, project, description, subtasks, recurring) |
 | `nazavtra_update_task` | Обновить поля задачи |
 | `nazavtra_delete_task` | Удалить задачу |
 | `nazavtra_toggle_task` | Переключить выполнение |

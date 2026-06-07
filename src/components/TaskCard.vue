@@ -60,6 +60,36 @@ function isOverdue(iso) {
 function completedSubtasks(task) {
   return task.subtasks.filter(s => s.completed).length
 }
+
+const weekdayShort = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб']
+
+function localDateStr(d) {
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
+}
+
+function nextOccurrenceText(task) {
+  if (!task.recurring || !task.dueDate) return null
+  const now = new Date()
+  const todayStr = localDateStr(now)
+  const due = new Date(task.dueDate + 'T00:00:00Z')
+
+  const todayUTC = new Date(todayStr + 'T00:00:00Z')
+  const diffDays = Math.round((due.getTime() - todayUTC.getTime()) / 86400000)
+
+  let dayText
+  if (diffDays === 0) dayText = 'Сегодня'
+  else if (diffDays === 1) dayText = 'Завтра'
+  else if (diffDays === 2) dayText = 'Послезавтра'
+  else if (diffDays > 2 && diffDays <= 7) dayText = weekdayShort[due.getUTCDay()]
+  else if (diffDays > 7 && diffDays <= 14) dayText = `Через ${diffDays} дн.`
+  else dayText = due.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', timeZone: 'UTC' })
+
+  const parts = [dayText]
+  if (task.recurring.time) parts.push(task.recurring.time)
+  if (task.recurring.duration) parts.push(`${task.recurring.duration} мин`)
+  if (task.completedCount > 0) parts.push(`${task.completedCount} раз`)
+  return parts.join(' · ')
+}
 </script>
 
 <template>
@@ -92,11 +122,14 @@ function completedSubtasks(task) {
         >
           {{ priorityLabels[task.priority] }}
         </span>
-        <span v-if="task.dueDate" class="due-date" :class="{ overdue: isOverdue(task.dueDate) && !task.completed }">
+        <span v-if="task.dueDate && !task.recurring" class="due-date" :class="{ overdue: isOverdue(task.dueDate) && !task.completed }">
           {{ formatDate(task.dueDate) }}
         </span>
         <span v-if="task.subtasks.length > 0" class="subtask-count">
           {{ completedSubtasks(task) }}/{{ task.subtasks.length }}
+        </span>
+        <span v-if="task.recurring" class="recurring-badge">
+          {{ nextOccurrenceText(task) }}
         </span>
       </div>
     </div>
@@ -273,6 +306,15 @@ function completedSubtasks(task) {
   background: var(--bg-tertiary);
   padding: 1px 6px;
   border-radius: 999px;
+}
+
+.recurring-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--accent-bg);
+  color: var(--accent);
 }
 
 .task-actions {
