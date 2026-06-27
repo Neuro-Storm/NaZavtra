@@ -16,9 +16,11 @@ const showForm = ref(false)
 const editingTask = ref(null)
 const menuOpen = ref(false)
 const showSettings = ref(false)
+const initialTitle = ref('')
 
-function openNewTask() {
+function openNewTask(title) {
   editingTask.value = null
+  initialTitle.value = typeof title === 'string' ? title : ''
   showForm.value = true
 }
 
@@ -33,6 +35,7 @@ function openEditTask(id) {
 function closeForm() {
   showForm.value = false
   editingTask.value = null
+  initialTitle.value = ''
 }
 
 function toggleMenu() {
@@ -84,6 +87,7 @@ useKeyboardShortcuts({
     <TaskForm
       v-if="showForm"
       :task="editingTask"
+      :initial-title="initialTitle"
       @close="closeForm"
     />
     <SettingsPage

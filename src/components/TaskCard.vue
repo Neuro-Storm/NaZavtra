@@ -99,6 +99,7 @@ function nextOccurrenceText(task) {
   <div
     class="task-card"
     :class="{ completed: task.completed }"
+    :data-id="task.id"
   >
     <span v-if="showDragHandle" class="drag-handle" title="Перетащить">⠿</span>
     <label class="checkbox-wrapper">

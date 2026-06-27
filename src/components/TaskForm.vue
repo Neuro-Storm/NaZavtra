@@ -4,6 +4,7 @@ import { useTasksStore } from '../stores/tasks.js'
 
 const props = defineProps({
   task: { type: Object, default: null },
+  initialTitle: { type: String, default: '' },
 })
 const emit = defineEmits(['close'])
 
@@ -107,7 +108,7 @@ watch(() => props.task, (task) => {
     }
   } else {
     isEditing.value = false
-    title.value = ''
+    title.value = props.initialTitle || ''
     description.value = ''
     priority.value = 1
     projectId.value = store.activeProjectId ?? null

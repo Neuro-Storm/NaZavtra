@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed, onScopeDispose } from 'vue'
-import { uid, now, getNextDueDate } from '../utils.js'
+import { uid, now, getNextDueDate, localDateStr } from '../utils.js'
 
 const STORAGE_KEY = 'todo-app-data'
 
@@ -49,6 +49,8 @@ export const useTasksStore = defineStore('tasks', () => {
   const searchQuery = ref('')
   const filterStatus = ref('all')
   const activeTaskId = ref(null)
+  const sortBy = ref(local?.sortBy ?? 'manual')
+  const draggingTaskId = ref(null)
 
   function storageHandler(e) {
     if (e.key === STORAGE_KEY && e.newValue) {
@@ -79,10 +81,21 @@ export const useTasksStore = defineStore('tasks', () => {
       tasks: tasks.value,
       projects: projects.value,
       activeProjectId: activeProjectId.value,
+      sortBy: sortBy.value,
     }
     saveLocal(data)
     if (import.meta.env.DEV) postData(data)
   }
+
+  const agenda = computed(() => {
+    const todayStr = localDateStr(new Date())
+    const items = tasks.value.filter(t => !t.completed && t.dueDate && t.dueDate.slice(0, 10) <= todayStr)
+    const overdue = items.filter(t => t.dueDate.slice(0, 10) < todayStr)
+    const today = items.filter(t => t.dueDate.slice(0, 10) === todayStr)
+    const timed = today.filter(t => t.recurring?.time).sort((a, b) => a.recurring.time.localeCompare(b.recurring.time))
+    const untimed = today.filter(t => !t.recurring?.time)
+    return { overdue, timed, untimed }
+  })
 
   const filteredTasks = computed(() => {
     let list = tasks.value
@@ -95,6 +108,11 @@ export const useTasksStore = defineStore('tasks', () => {
         if (timeA !== timeB) return timeA.localeCompare(timeB)
         return (a.order ?? 0) - (b.order ?? 0)
       })
+    }
+
+    if (activeProjectId.value === 'today') {
+      const a = agenda.value
+      return [...a.overdue, ...a.timed, ...a.untimed]
     }
 
     if (activeProjectId.value) {
@@ -115,7 +133,23 @@ export const useTasksStore = defineStore('tasks', () => {
       list = list.filter(t => t.completed)
     }
 
-    return [...list].sort((a, b) => a.order - b.order)
+    return [...list].sort((a, b) => {
+      switch (sortBy.value) {
+        case 'due':
+          if (!a.dueDate && !b.dueDate) return 0
+          if (!a.dueDate) return 1
+          if (!b.dueDate) return -1
+          return a.dueDate.localeCompare(b.dueDate)
+        case 'priority':
+          return (b.priority ?? 1) - (a.priority ?? 1)
+        case 'name':
+          return a.title.localeCompare(b.title, 'ru')
+        case 'created':
+          return (b.createdAt ?? '').localeCompare(a.createdAt ?? '')
+        default: // 'manual'
+          return (a.order ?? 0) - (b.order ?? 0)
+      }
+    })
   })
 
   const recurringTasks = computed(() =>
@@ -133,6 +167,9 @@ export const useTasksStore = defineStore('tasks', () => {
   const activeProject = computed(() => {
     if (activeProjectId.value === 'recurring') {
       return { id: 'recurring', name: 'Повторяющиеся', color: '#8b5cf6' }
+    }
+    if (activeProjectId.value === 'today') {
+      return { id: 'today', name: 'Сегодня' }
     }
     return projects.value.find(p => p.id === activeProjectId.value)
   })
@@ -277,9 +314,12 @@ export const useTasksStore = defineStore('tasks', () => {
     searchQuery,
     filterStatus,
     activeTaskId,
+    sortBy,
+    draggingTaskId,
     filteredTasks,
     recurringTasks,
     activeProject,
+    agenda,
     stats,
     taskCountByProject,
     addTask,

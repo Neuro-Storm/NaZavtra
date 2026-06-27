@@ -53,6 +53,31 @@ function exitApp() {
 }
 
 const fileInput = ref(null)
+
+// F1: drag-to-project drop state
+const draggingOverProject = ref(null)
+
+function onNavDragOver(e) {
+  e.preventDefault()
+}
+
+function onNavDrop(projectId) {
+  if (store.draggingTaskId) {
+    store.updateTask(store.draggingTaskId, { projectId })
+    store.draggingTaskId = null
+  }
+  draggingOverProject.value = null
+}
+
+function onNavDragEnter(projectId) {
+  draggingOverProject.value = projectId
+}
+
+function onNavDragLeave(e) {
+  if (!e.currentTarget.contains(e.relatedTarget)) {
+    draggingOverProject.value = null
+  }
+}
 </script>
 
 <template>
@@ -65,8 +90,24 @@ const fileInput = ref(null)
     <nav class="nav">
       <button
         class="nav-item"
-        :class="{ active: !store.activeProjectId }"
+        :class="{ active: store.activeProjectId === 'today' }"
+        @click="store.activeProjectId = 'today'; emit('close')"
+      >
+        <span class="nav-icon">📅</span>
+        Сегодня
+        <span class="nav-count">{{ store.agenda.overdue.length + store.agenda.timed.length + store.agenda.untimed.length }}</span>
+      </button>
+      <button
+        class="nav-item"
+        :class="{
+          active: !store.activeProjectId,
+          'drop-target': draggingOverProject === '__all__'
+        }"
         @click="store.activeProjectId = null; emit('close')"
+        @dragover="onNavDragOver"
+        @drop.prevent="onNavDrop(null)"
+        @dragenter="onNavDragEnter('__all__')"
+        @dragleave="onNavDragLeave"
       >
         <span class="nav-icon">📋</span>
         Все задачи
@@ -85,8 +126,15 @@ const fileInput = ref(null)
         v-for="project in store.projects"
         :key="project.id"
         class="nav-item"
-        :class="{ active: store.activeProjectId === project.id }"
+        :class="{
+          active: store.activeProjectId === project.id,
+          'drop-target': draggingOverProject === project.id
+        }"
         @click="store.activeProjectId = project.id; emit('close')"
+        @dragover="onNavDragOver"
+        @drop.prevent="onNavDrop(project.id)"
+        @dragenter="onNavDragEnter(project.id)"
+        @dragleave="onNavDragLeave"
       >
         <span class="nav-dot" :style="{ background: project.color }" />
         <span class="truncate">{{ project.name }}</span>
@@ -227,6 +275,11 @@ const fileInput = ref(null)
   background: var(--accent-bg);
   color: var(--accent);
   font-weight: 500;
+}
+.nav-item.drop-target {
+  background: var(--accent-bg);
+  border: 1px dashed var(--accent);
+  color: var(--accent);
 }
 
 .nav-icon {
