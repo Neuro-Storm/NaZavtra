@@ -5,6 +5,7 @@ import { useTheme } from './composables/useTheme.js'
 import { useKeyboardShortcuts } from './composables/useKeyboardShortcuts.js'
 import Sidebar from './components/Sidebar.vue'
 import TaskList from './components/TaskList.vue'
+import GraphBoard from './components/GraphBoard.vue'
 import StatsPanel from './components/StatsPanel.vue'
 import ThemeToggle from './components/ThemeToggle.vue'
 import TaskForm from './components/TaskForm.vue'
@@ -73,15 +74,18 @@ useKeyboardShortcuts({
           <span class="burger-line" />
         </button>
         <h1 class="title">{{ store.activeProject?.name ?? 'Все задачи' }}</h1>
-        <span class="task-count">{{ store.filteredTasks.length }}</span>
+        <span class="task-count">
+          {{ store.activeProjectId === 'graph' ? store.graphTasks.length : store.filteredTasks.length }}
+        </span>
       </div>
       <div class="header-actions">
         <ThemeToggle :theme="theme" @toggle="toggle" />
         <button class="btn btn-primary" @click="openNewTask">+</button>
       </div>
     </header>
-    <TaskList @edit="openEditTask" @new-task="openNewTask" />
-    <StatsPanel />
+    <GraphBoard v-if="store.activeProjectId === 'graph'" @edit="openEditTask" />
+    <TaskList v-else @edit="openEditTask" @new-task="openNewTask" />
+    <StatsPanel v-if="store.activeProjectId !== 'graph'" />
   </main>
   <Teleport to="body">
     <TaskForm

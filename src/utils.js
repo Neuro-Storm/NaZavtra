@@ -1,3 +1,22 @@
+// Returns true if there is a directed path from `fromId` to `toId` in the
+// parentIds graph (i.e. `fromId` is an ancestor of `toId`).
+// Used to detect cycles before adding a link.
+export function hasPath(tasksById, fromId, toId) {
+  const visited = new Set()
+  const queue = [fromId]
+  while (queue.length) {
+    const cur = queue.shift()
+    if (cur === toId) return true
+    if (visited.has(cur)) continue
+    visited.add(cur)
+    const task = tasksById[cur]
+    if (task?.parentIds) {
+      for (const pid of task.parentIds) queue.push(pid)
+    }
+  }
+  return false
+}
+
 export function localDateStr(d) {
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
 }

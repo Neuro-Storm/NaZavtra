@@ -1,11 +1,15 @@
 import { defineStore } from 'pinia'
 import { ref, computed, onScopeDispose } from 'vue'
-import { uid, now, getNextDueDate, localDateStr } from '../utils.js'
+import { uid, now, getNextDueDate, localDateStr, hasPath } from '../utils.js'
 
 const STORAGE_KEY = 'todo-app-data'
 
 function ensureUpdatedAt(item) {
   if (!item.updatedAt) item.updatedAt = now()
+  // Graph fields migration
+  if (!Array.isArray(item.parentIds)) item.parentIds = []
+  if (!('graphPos' in item)) item.graphPos = null
+  if (!('onGraph' in item)) item.onGraph = false
   return item
 }
 
@@ -171,7 +175,40 @@ export const useTasksStore = defineStore('tasks', () => {
     if (activeProjectId.value === 'today') {
       return { id: 'today', name: 'Сегодня' }
     }
+    if (activeProjectId.value === 'graph') {
+      return { id: 'graph', name: 'Карта целей' }
+    }
     return projects.value.find(p => p.id === activeProjectId.value)
+  })
+
+  // Graph computed
+  const graphTaskIds = computed(() => {
+    const ids = new Set()
+    for (const t of tasks.value) {
+      if (t.onGraph || t.parentIds?.length > 0) ids.add(t.id)
+    }
+    // also add tasks that are referenced as parents
+    for (const t of tasks.value) {
+      for (const pid of (t.parentIds ?? [])) ids.add(pid)
+    }
+    return ids
+  })
+
+  const graphTasks = computed(() =>
+    tasks.value.filter(t => graphTaskIds.value.has(t.id))
+  )
+
+  const graphEdges = computed(() => {
+    const ids = graphTaskIds.value
+    const edges = []
+    for (const t of tasks.value) {
+      for (const pid of (t.parentIds ?? [])) {
+        if (ids.has(pid) && ids.has(t.id)) {
+          edges.push({ id: `${pid}->${t.id}`, source: pid, target: t.id })
+        }
+      }
+    }
+    return edges
   })
 
   const stats = computed(() => {
@@ -186,11 +223,12 @@ export const useTasksStore = defineStore('tasks', () => {
   })
 
   function addTask(data) {
+    const projId = activeProjectId.value
     const task = {
       id: uid(),
       title: data.title,
       description: data.description ?? '',
-      projectId: data.projectId ?? activeProjectId.value ?? null,
+      projectId: data.projectId ?? (projId && !['recurring','today','graph'].includes(projId) ? projId : null),
       priority: data.priority ?? 1,
       dueDate: data.dueDate ?? null,
       completed: false,
@@ -198,6 +236,9 @@ export const useTasksStore = defineStore('tasks', () => {
       subtasks: data.subtasks ?? [],
       recurring: data.recurring ?? null,
       order: tasks.value.length,
+      parentIds: [],
+      graphPos: null,
+      onGraph: false,
       createdAt: now(),
       updatedAt: now(),
     }
@@ -215,6 +256,12 @@ export const useTasksStore = defineStore('tasks', () => {
 
   function deleteTask(id) {
     tasks.value = tasks.value.filter(t => t.id !== id)
+    // remove dangling parentIds references
+    for (const t of tasks.value) {
+      if (t.parentIds?.includes(id)) {
+        t.parentIds = t.parentIds.filter(pid => pid !== id)
+      }
+    }
     if (activeTaskId.value === id) activeTaskId.value = null
     persist()
   }
@@ -257,6 +304,75 @@ export const useTasksStore = defineStore('tasks', () => {
     })
     persist()
   }
+
+  // ── Graph mutations ──────────────────────────────────────────────────────
+  function addParentLink(childId, parentId) {
+    if (childId === parentId) return false
+    const child = tasks.value.find(t => t.id === childId)
+    if (!child) return false
+    if (child.parentIds.includes(parentId)) return false
+    // Cycle check: would adding parentId as parent of childId create a cycle?
+    // i.e. is childId already an ancestor of parentId?
+    const tasksById = Object.fromEntries(tasks.value.map(t => [t.id, t]))
+    if (hasPath(tasksById, parentId, childId)) return false
+    child.parentIds.push(parentId)
+    child.updatedAt = now()
+    persist()
+    return true
+  }
+
+  function removeParentLink(childId, parentId) {
+    const child = tasks.value.find(t => t.id === childId)
+    if (!child) return
+    child.parentIds = child.parentIds.filter(pid => pid !== parentId)
+    child.updatedAt = now()
+    persist()
+  }
+
+  function setGraphPos(id, pos) {
+    const task = tasks.value.find(t => t.id === id)
+    if (!task) return
+    task.graphPos = { x: pos.x, y: pos.y }
+    task.updatedAt = now()
+    persist()
+  }
+
+  function addTaskToGraph(id) {
+    const task = tasks.value.find(t => t.id === id)
+    if (!task) return
+    task.onGraph = true
+    task.updatedAt = now()
+    persist()
+  }
+
+  function removeTaskFromGraph(id) {
+    const task = tasks.value.find(t => t.id === id)
+    if (!task) return
+    task.onGraph = false
+    task.graphPos = null
+    task.parentIds = []
+    task.updatedAt = now()
+    // remove this task from other tasks' parentIds
+    for (const t of tasks.value) {
+      if (t.parentIds?.includes(id)) {
+        t.parentIds = t.parentIds.filter(pid => pid !== id)
+      }
+    }
+    persist()
+  }
+
+  function createGraphTask({ title, pos, parentId = null }) {
+    const task = addTask({ title })
+    task.onGraph = true
+    task.graphPos = { x: pos.x, y: pos.y }
+    if (parentId) {
+      task.parentIds = [parentId]
+    }
+    task.updatedAt = now()
+    persist()
+    return task
+  }
+  // ────────────────────────────────────────────────────────────────────────
 
   function addProject(name) {
     const colors = ['#4f46e5', '#ef4444', '#f59e0b', '#22c55e', '#06b6d4', '#8b5cf6', '#ec4899']
@@ -322,11 +438,20 @@ export const useTasksStore = defineStore('tasks', () => {
     agenda,
     stats,
     taskCountByProject,
+    graphTaskIds,
+    graphTasks,
+    graphEdges,
     addTask,
     updateTask,
     deleteTask,
     toggleTask,
     reorderTasks,
+    addParentLink,
+    removeParentLink,
+    setGraphPos,
+    addTaskToGraph,
+    removeTaskFromGraph,
+    createGraphTask,
     addProject,
     deleteProject,
     exportData,

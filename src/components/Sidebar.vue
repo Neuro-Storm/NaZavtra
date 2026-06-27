@@ -90,6 +90,15 @@ function onNavDragLeave(e) {
     <nav class="nav">
       <button
         class="nav-item"
+        :class="{ active: store.activeProjectId === 'graph' }"
+        @click="store.activeProjectId = 'graph'; emit('close')"
+      >
+        <span class="nav-icon">🗺️</span>
+        Карта целей
+        <span class="nav-count">{{ store.graphTasks.length }}</span>
+      </button>
+      <button
+        class="nav-item"
         :class="{ active: store.activeProjectId === 'today' }"
         @click="store.activeProjectId = 'today'; emit('close')"
       >
