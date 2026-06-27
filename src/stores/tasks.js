@@ -1,15 +1,8 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, onScopeDispose } from 'vue'
+import { uid, now, getNextDueDate } from '../utils.js'
 
 const STORAGE_KEY = 'todo-app-data'
-
-function uid() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
-}
-
-function now() {
-  return new Date().toISOString()
-}
 
 function ensureUpdatedAt(item) {
   if (!item.updatedAt) item.updatedAt = now()
@@ -47,32 +40,6 @@ function postData(data) {
 
 const DEFAULT_PROJECTS = [{ id: 'inbox', name: 'Входящие', color: '#6b7280', updatedAt: new Date(0).toISOString() }]
 
-function getNextDueDate(task) {
-  if (!task.recurring || !task.dueDate) return null
-  const d = new Date(task.dueDate + 'T00:00:00Z')
-  const r = task.recurring
-
-  if (r.type === 'daily') {
-    d.setUTCDate(d.getUTCDate() + 1)
-  } else if (r.type === 'interval') {
-    d.setUTCDate(d.getUTCDate() + (r.interval || 1))
-  } else if (r.type === 'weekdays') {
-    const days = r.weekdays?.length ? r.weekdays : [1, 2, 3, 4, 5]
-    for (let i = 1; i <= 7; i++) {
-      const next = new Date(d)
-      next.setUTCDate(d.getUTCDate() + i)
-      if (days.includes(next.getUTCDay())) return next.toISOString().slice(0, 10)
-    }
-  } else if (r.type === 'weekly') {
-    d.setUTCDate(d.getUTCDate() + 7 * (r.interval || 1))
-  } else if (r.type === 'monthly') {
-    const day = d.getUTCDate()
-    d.setUTCMonth(d.getUTCMonth() + 1)
-    d.setUTCDate(Math.min(day, new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate()))
-  }
-  return d.toISOString().slice(0, 10)
-}
-
 export const useTasksStore = defineStore('tasks', () => {
   const local = loadLocal()
 
@@ -83,7 +50,7 @@ export const useTasksStore = defineStore('tasks', () => {
   const filterStatus = ref('all')
   const activeTaskId = ref(null)
 
-  window.addEventListener('storage', (e) => {
+  function storageHandler(e) {
     if (e.key === STORAGE_KEY && e.newValue) {
       try {
         const data = JSON.parse(e.newValue)
@@ -92,7 +59,9 @@ export const useTasksStore = defineStore('tasks', () => {
         if (data.activeProjectId) activeProjectId.value = data.activeProjectId
       } catch {}
     }
-  })
+  }
+  window.addEventListener('storage', storageHandler)
+  onScopeDispose(() => window.removeEventListener('storage', storageHandler))
 
   if (import.meta.env.DEV) {
     fetchData().then(data => {
@@ -100,6 +69,7 @@ export const useTasksStore = defineStore('tasks', () => {
         tasks.value = (data.tasks ?? []).map(ensureUpdatedAt)
         projects.value = (data.projects ?? [...DEFAULT_PROJECTS]).map(ensureUpdatedAt)
         activeProjectId.value = data.activeProjectId ?? null
+        console.info('[dev] state loaded from /api/data')
       }
     })
   }
@@ -143,8 +113,6 @@ export const useTasksStore = defineStore('tasks', () => {
       list = list.filter(t => !t.completed)
     } else if (filterStatus.value === 'completed') {
       list = list.filter(t => t.completed)
-    } else if (filterStatus.value === 'recurring') {
-      list = list.filter(t => t.recurring)
     }
 
     return [...list].sort((a, b) => a.order - b.order)
@@ -153,6 +121,14 @@ export const useTasksStore = defineStore('tasks', () => {
   const recurringTasks = computed(() =>
     tasks.value.filter(t => t.recurring && !t.completed)
   )
+
+  const taskCountByProject = computed(() => {
+    const m = {}
+    for (const t of tasks.value) {
+      if (t.projectId) m[t.projectId] = (m[t.projectId] ?? 0) + 1
+    }
+    return m
+  })
 
   const activeProject = computed(() => {
     if (activeProjectId.value === 'recurring') {
@@ -231,10 +207,16 @@ export const useTasksStore = defineStore('tasks', () => {
     persist()
   }
 
-  function reorderTasks(newOrder) {
-    newOrder.forEach((id, idx) => {
+  function reorderTasks(orderedIds) {
+    // Recycle only the order slots that belong to the reordered tasks,
+    // so tasks in other projects/filters keep their positions.
+    const slots = orderedIds
+      .map(id => tasks.value.find(t => t.id === id)?.order)
+      .filter(o => o !== undefined)
+      .sort((a, b) => a - b)
+    orderedIds.forEach((id, i) => {
       const task = tasks.value.find(t => t.id === id)
-      if (task) { task.order = idx; task.updatedAt = now() }
+      if (task) { task.order = slots[i]; task.updatedAt = now() }
     })
     persist()
   }
@@ -299,6 +281,7 @@ export const useTasksStore = defineStore('tasks', () => {
     recurringTasks,
     activeProject,
     stats,
+    taskCountByProject,
     addTask,
     updateTask,
     deleteTask,

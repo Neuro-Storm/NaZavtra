@@ -1,13 +1,16 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useTasksStore } from '../stores/tasks.js'
 
 const props = defineProps({
   task: { type: Object, required: true },
+  showDragHandle: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['toggle', 'edit', 'delete'])
 const store = useTasksStore()
+
+const project = computed(() => store.projects.find(p => p.id === props.task.projectId))
 
 const showMove = ref(false)
 
@@ -97,6 +100,7 @@ function nextOccurrenceText(task) {
     class="task-card"
     :class="{ completed: task.completed }"
   >
+    <span v-if="showDragHandle" class="drag-handle" title="Перетащить">⠿</span>
     <label class="checkbox-wrapper">
       <input
         type="checkbox"
@@ -111,10 +115,10 @@ function nextOccurrenceText(task) {
       <div class="task-title" :class="{ done: task.completed }">{{ task.title }}</div>
       <div class="task-meta">
         <span
-          v-if="task.projectId"
+          v-if="project"
           class="project-badge"
-          :style="{ '--dot-color': store.projects.find(p => p.id === task.projectId)?.color }"
-        >{{ store.projects.find(p => p.id === task.projectId)?.name }}</span>
+          :style="{ '--dot-color': project.color }"
+        >{{ project.name }}</span>
         <span
           v-if="task.priority !== undefined"
           class="priority-badge"
@@ -177,6 +181,27 @@ function nextOccurrenceText(task) {
 .task-card.completed {
   opacity: 0.6;
   background: var(--bg-secondary);
+}
+
+.drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  flex-shrink: 0;
+  cursor: grab;
+  color: var(--text-secondary);
+  opacity: 0.3;
+  font-size: 1rem;
+  line-height: 1;
+  user-select: none;
+  margin-top: 2px;
+}
+.drag-handle:active {
+  cursor: grabbing;
+}
+.task-card:hover .drag-handle {
+  opacity: 0.6;
 }
 
 .checkbox-wrapper {
@@ -347,49 +372,15 @@ function nextOccurrenceText(task) {
 }
 
 @media (max-width: 768px) {
+  .task-card {
+    padding: 10px 12px;
+  }
   .action-btn {
     opacity: 1;
     width: 36px;
     height: 36px;
     font-size: 1rem;
   }
-  .task-card {
-    padding: 10px 12px;
-  }
-}
-.task-card:hover .task-actions {
-  opacity: 1;
-}
-
-@media (max-width: 768px) {
-  .task-actions {
-    opacity: 1;
-  }
-  .action-btn {
-    width: 36px;
-    height: 36px;
-    font-size: 1rem;
-  }
-  .task-card {
-    padding: 10px 12px;
-  }
-}
-
-.action-btn {
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-sm);
-  transition: all var(--transition);
-  font-size: 0.8rem;
-}
-.action-btn:hover {
-  background: var(--bg-hover);
-}
-.delete-btn:hover {
-  background: var(--priority-high-bg);
 }
 
 .move-wrapper {

@@ -1,15 +1,23 @@
 <script setup>
+import { ref, computed, watch } from 'vue'
+import draggable from 'vuedraggable'
 import { useTasksStore } from '../stores/tasks.js'
 import TaskCard from './TaskCard.vue'
 
 const emit = defineEmits(['edit', 'new-task'])
 const store = useTasksStore()
 
-function handleDragEnd(evt) {
-  const ids = evt.clone.map(el => el.__vueParentComponent?.props?.task?.id)
-  // vuedraggable handles the DOM reorder, we just persist new order
-  const ordered = [...store.filteredTasks].sort((a, b) => a.order - b.order)
-  store.reorderTasks(ordered.map(t => t.id))
+// Local copy of filtered tasks for vuedraggable (computed refs are read-only)
+const localTasks = ref([...store.filteredTasks])
+watch(() => store.filteredTasks, (val) => { localTasks.value = [...val] })
+
+// Disable drag when the order wouldn't be meaningful
+const dragDisabled = computed(() =>
+  !!store.searchQuery || store.filterStatus === 'completed'
+)
+
+function handleDragEnd() {
+  store.reorderTasks(localTasks.value.map(t => t.id))
 }
 </script>
 
@@ -38,30 +46,36 @@ function handleDragEnd(evt) {
           :class="{ active: store.filterStatus === 'completed' }"
           @click="store.filterStatus = 'completed'"
         >Завершённые</button>
-        <button
-          class="chip"
-          :class="{ active: store.filterStatus === 'recurring' }"
-          @click="store.filterStatus = 'recurring'"
-        >Повторяющиеся</button>
       </div>
     </div>
 
     <div class="task-list">
-      <div v-if="store.filteredTasks.length === 0" class="empty-state">
+      <div v-if="localTasks.length === 0" class="empty-state">
         <div class="empty-icon">☑️</div>
         <h3>Задач пока нет</h3>
         <p>Создайте новую задачу, чтобы начать</p>
         <button class="btn btn-primary" @click="emit('new-task')">+ Новая задача</button>
       </div>
 
-      <TaskCard
-        v-for="task in store.filteredTasks"
-        :key="task.id"
-        :task="task"
-        @toggle="store.toggleTask(task.id)"
-        @edit="emit('edit', task.id)"
-        @delete="store.deleteTask(task.id)"
-      />
+      <draggable
+        v-model="localTasks"
+        item-key="id"
+        handle=".drag-handle"
+        :disabled="dragDisabled"
+        :animation="150"
+        ghost-class="drag-ghost"
+        @end="handleDragEnd"
+      >
+        <template #item="{ element: task }">
+          <TaskCard
+            :task="task"
+            :show-drag-handle="!dragDisabled"
+            @toggle="store.toggleTask(task.id)"
+            @edit="emit('edit', task.id)"
+            @delete="store.deleteTask(task.id)"
+          />
+        </template>
+      </draggable>
     </div>
   </div>
 </template>
@@ -200,5 +214,10 @@ function handleDragEnd(evt) {
 }
 .btn-primary:hover {
   background: var(--accent-hover);
+}
+
+:global(.drag-ghost) {
+  opacity: 0.4;
+  border: 1px dashed var(--accent) !important;
 }
 </style>

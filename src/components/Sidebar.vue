@@ -90,7 +90,7 @@ const fileInput = ref(null)
       >
         <span class="nav-dot" :style="{ background: project.color }" />
         <span class="truncate">{{ project.name }}</span>
-        <span class="nav-count">{{ store.tasks.filter(t => t.projectId === project.id).length }}</span>
+        <span class="nav-count">{{ store.taskCountByProject[project.id] ?? 0 }}</span>
         <button
           v-if="project.id !== 'inbox'"
           class="nav-delete"

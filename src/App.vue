@@ -54,7 +54,7 @@ function closeSettings() {
 
 useKeyboardShortcuts({
   n: openNewTask,
-  Escape: closeForm,
+  escape: closeForm,
 })
 </script>
 

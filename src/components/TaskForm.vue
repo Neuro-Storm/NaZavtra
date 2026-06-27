@@ -1,5 +1,5 @@
 ﻿<script setup>
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, nextTick } from 'vue'
 import { useTasksStore } from '../stores/tasks.js'
 
 const props = defineProps({
@@ -17,6 +17,8 @@ const dueDate = ref('')
 const subtasks = ref([])
 const newSubtaskTitle = ref('')
 const isEditing = ref(false)
+const errorMsg = ref('')
+const titleRef = ref(null)
 
 const recurringType = ref(null)
 const recurringInterval = ref(1)
@@ -85,6 +87,7 @@ const recurringObject = computed(() => {
 })
 
 watch(() => props.task, (task) => {
+  errorMsg.value = ''
   if (task) {
     isEditing.value = true
     title.value = task.title
@@ -112,6 +115,7 @@ watch(() => props.task, (task) => {
     subtasks.value = []
     clearRecurring()
   }
+  nextTick(() => titleRef.value?.focus())
 }, { immediate: true })
 
 function addSubtask() {
@@ -128,9 +132,10 @@ function removeSubtask(id) {
 function handleSubmit() {
   if (!title.value.trim()) return
   if (recurringObject.value && !dueDate.value) {
-    alert('Для повторяющейся задачи нужно указать срок')
+    errorMsg.value = 'Для повторяющейся задачи нужно указать срок'
     return
   }
+  errorMsg.value = ''
 
   const data = {
     title: title.value.trim(),
@@ -151,14 +156,12 @@ function handleSubmit() {
   emit('close')
 }
 
+watch(dueDate, () => { errorMsg.value = '' })
+
 function handleBackdropClick(e) {
   if (e.target === e.currentTarget) emit('close')
 }
 
-const titleRef = ref(null)
-watch(() => props.task, () => {
-  setTimeout(() => titleRef.value?.focus(), 50)
-}, { immediate: true })
 </script>
 
 <template>
@@ -194,6 +197,7 @@ watch(() => props.task, () => {
           <div class="field">
             <label class="label">Срок</label>
             <input v-model="dueDate" class="input" type="date" />
+            <span v-if="errorMsg" class="field-error">{{ errorMsg }}</span>
           </div>
         </div>
 
@@ -424,6 +428,12 @@ watch(() => props.task, () => {
   resize: vertical;
   min-height: 60px;
   line-height: 1.5;
+}
+
+.field-error {
+  font-size: 0.78rem;
+  color: var(--priority-high);
+  font-weight: 500;
 }
 
 select.input {
