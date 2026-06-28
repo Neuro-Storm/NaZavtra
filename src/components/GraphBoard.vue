@@ -220,7 +220,7 @@ const showAddExisting = ref(false)
 const addExistingBtn = ref(null)
 
 const nonGraphTasks = computed(() =>
-  store.tasks.filter(t => !store.graphTaskIds.has(t.id))
+  store.tasks.filter(t => !store.graphTaskIds.has(t.id) && !t.completed)
 )
 
 function toggleAddExisting() {
