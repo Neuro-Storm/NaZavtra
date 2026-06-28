@@ -238,7 +238,7 @@ export const useTasksStore = defineStore('tasks', () => {
       order: tasks.value.length,
       parentIds: [],
       graphPos: null,
-      onGraph: false,
+      onGraph: data.onGraph ?? false,
       createdAt: now(),
       updatedAt: now(),
     }
@@ -266,6 +266,37 @@ export const useTasksStore = defineStore('tasks', () => {
     persist()
   }
 
+  // ── Cascade completion (session-scoped, not persisted) ──────────────────
+  const autoCompletedBy = new Map() // parentId → [childId, ...]
+
+  function cascadeComplete(parentId, autoList) {
+    const children = tasks.value.filter(t => t.parentIds?.includes(parentId))
+    for (const child of children) {
+      if ((child.parentIds?.length ?? 0) > 1) continue // skip multi-parent
+      if (child.completed) continue                     // already done, stop branch
+      const cidx = tasks.value.findIndex(t => t.id === child.id)
+      if (cidx !== -1) {
+        tasks.value[cidx] = { ...tasks.value[cidx], completed: true, updatedAt: now() }
+        autoList.push(child.id)
+        cascadeComplete(child.id, autoList)
+      }
+    }
+  }
+
+  function cascadeUncomplete(parentId) {
+    const ids = autoCompletedBy.get(parentId)
+    if (!ids) return
+    for (const id of ids) {
+      const cidx = tasks.value.findIndex(t => t.id === id)
+      if (cidx !== -1 && tasks.value[cidx].completed) {
+        tasks.value[cidx] = { ...tasks.value[cidx], completed: false, updatedAt: now() }
+      }
+      autoCompletedBy.delete(id) // clean up any nested entries
+    }
+    autoCompletedBy.delete(parentId)
+  }
+  // ────────────────────────────────────────────────────────────────────────
+
   function toggleTask(id) {
     const idx = tasks.value.findIndex(t => t.id === id)
     if (idx === -1) return
@@ -284,8 +315,16 @@ export const useTasksStore = defineStore('tasks', () => {
       } else {
         tasks.value[idx] = { ...task, completed: !task.completed, updatedAt: now() }
       }
+    } else if (!task.completed) {
+      // Completing → cascade single-parent children
+      tasks.value[idx] = { ...task, completed: true, updatedAt: now() }
+      const autoList = []
+      cascadeComplete(id, autoList)
+      if (autoList.length > 0) autoCompletedBy.set(id, autoList)
     } else {
-      tasks.value[idx] = { ...task, completed: !task.completed, updatedAt: now() }
+      // Uncompleting → restore session-auto-completed descendants
+      cascadeUncomplete(id)
+      tasks.value[idx] = { ...task, completed: false, updatedAt: now() }
     }
 
     persist()

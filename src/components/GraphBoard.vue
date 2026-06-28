@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
@@ -13,63 +13,108 @@ const store = useTasksStore()
 // ── VueFlow instance ───────────────────────────────────────────────────────
 const { project, fitView } = useVueFlow()
 
-// ── Node/edge sync ─────────────────────────────────────────────────────────
-function buildNodes(tasks, positions) {
-  return tasks.map(t => ({
-    id: t.id,
-    type: 'task',
-    position: positions.get(t.id) ?? { x: 0, y: 0 },
-    data: { task: t },
-  }))
-}
+// ── Hide-completed filter (#9) ─────────────────────────────────────────────
+const hideCompleted = ref(false)
+
+const visibleTasks = computed(() =>
+  hideCompleted.value
+    ? store.graphTasks.filter(t => !t.completed)
+    : store.graphTasks
+)
+
+const visibleTaskIds = computed(() => new Set(visibleTasks.value.map(t => t.id)))
+
+const visibleEdges = computed(() =>
+  store.graphEdges.filter(
+    e => visibleTaskIds.value.has(e.source) && visibleTaskIds.value.has(e.target)
+  )
+)
+
+// ── Node/edge state ────────────────────────────────────────────────────────
+const nodes = ref([])
+const edges = ref([])
+let initialised = false
 
 function buildEdges(storeEdges) {
   return storeEdges.map(e => ({
     ...e,
     type: 'smoothstep',
     animated: false,
-    markerEnd: { type: 'arrowclosed', width: 18, height: 18, color: 'var(--accent)' },
-    style: { stroke: 'var(--accent)', strokeWidth: 1.5 },
+    markerEnd: { type: 'arrowclosed', width: 20, height: 20, color: 'var(--accent)' },
+    style: { stroke: 'var(--accent)', strokeWidth: 2 },
+    selectable: true,
   }))
 }
 
-const nodes = ref([])
-const edges = ref([])
-let initialised = false
-
-function syncFromStore() {
-  const tasks = store.graphTasks
-  const positions = layoutWithDagre(tasks)
-  nodes.value = buildNodes(tasks, positions)
-  edges.value = buildEdges(store.graphEdges)
-}
-
+// ── Watch #1: ID-set changes → add/remove nodes (no position jitter) (#2/#7)
 watch(
-  [() => store.graphTasks, () => store.graphEdges],
+  () => visibleTasks.value.map(t => t.id).sort().join(','),
   () => {
-    // Merge: keep existing positions for nodes already on canvas, recompute new ones
-    const tasks = store.graphTasks
-    const positions = layoutWithDagre(tasks)
-    // Preserve positions of nodes already rendered (user may have dragged them)
-    const existing = new Map(nodes.value.map(n => [n.id, n.position]))
-    nodes.value = tasks.map(t => ({
-      id: t.id,
-      type: 'task',
-      position: existing.has(t.id) ? existing.get(t.id) : (positions.get(t.id) ?? { x: 0, y: 0 }),
-      data: { task: t },
-    }))
-    edges.value = buildEdges(store.graphEdges)
-    if (!initialised && tasks.length > 0) {
+    const tasks = visibleTasks.value
+    const taskIds = new Set(tasks.map(t => t.id))
+    const existingIds = new Set(nodes.value.map(n => n.id))
+
+    // Remove nodes that left visible set
+    const removedIds = [...existingIds].filter(id => !taskIds.has(id))
+    if (removedIds.length > 0) {
+      nodes.value = nodes.value.filter(n => !removedIds.includes(n.id))
+    }
+
+    // Add new nodes
+    const newTasks = tasks.filter(t => !existingIds.has(t.id))
+    if (newTasks.length > 0) {
+      // Run dagre once for position assignment
+      const dagrePositions = layoutWithDagre(tasks)
+      for (const t of newTasks) {
+        const pos = t.graphPos ?? dagrePositions.get(t.id) ?? { x: 0, y: 0 }
+        nodes.value.push({
+          id: t.id,
+          type: 'task',
+          position: { x: pos.x, y: pos.y },
+          data: { task: t },
+        })
+        // Persist dagre-computed positions so they become sticky
+        if (!t.graphPos) {
+          store.setGraphPos(t.id, pos)
+        }
+      }
+    }
+
+    // fitView once on first non-empty render
+    if (!initialised && nodes.value.length > 0) {
       initialised = true
       nextTick(() => fitView({ padding: 0.2 }))
     }
   },
-  { immediate: true, deep: false }
+  { immediate: true }
+)
+
+// ── Watch #2: task data changes (toggle/edit) → update node.data only (#7)
+watch(
+  () => store.graphTasks,
+  (tasks) => {
+    if (nodes.value.length === 0) return
+    const taskMap = new Map(tasks.map(t => [t.id, t]))
+    for (let i = 0; i < nodes.value.length; i++) {
+      const node = nodes.value[i]
+      const t = taskMap.get(node.id)
+      if (t && t !== node.data.task) {
+        // Replace node object (preserves position) so Vue detects change
+        nodes.value[i] = { ...node, data: { task: t } }
+      }
+    }
+  }
+)
+
+// ── Watch #3: edge set changes ─────────────────────────────────────────────
+watch(
+  visibleEdges,
+  () => { edges.value = buildEdges(visibleEdges.value) },
+  { immediate: true }
 )
 
 // ── Events ─────────────────────────────────────────────────────────────────
 function onConnect({ source, target }) {
-  // source = parent, target = child
   const ok = store.addParentLink(target, source)
   if (!ok) {
     alert('Нельзя создать связь: получится цикл или связь уже существует.')
@@ -84,6 +129,14 @@ function onNodeDoubleClick({ node }) {
   emit('edit', node.id)
 }
 
+// #1 — Edge click → confirm delete
+function onEdgeClick({ edge }) {
+  if (confirm('Удалить связь?')) {
+    store.removeParentLink(edge.target, edge.source)
+  }
+}
+
+// #1 — Delete key on selected edge
 function onEdgesChange(changes) {
   for (const ch of changes) {
     if (ch.type === 'remove') {
@@ -108,10 +161,8 @@ function onPaneClick(e) {
   const now = Date.now()
   const pos = { x: e.clientX, y: e.clientY }
 
-  // Distinguish single vs double click on pane
   if (lastClickPos && now - lastClickTime < DOUBLE_CLICK_MS &&
       Math.abs(pos.x - lastClickPos.x) < 5 && Math.abs(pos.y - lastClickPos.y) < 5) {
-    // double click on pane — ignore (could extend later)
     lastClickTime = 0
     lastClickPos = null
     return
@@ -121,7 +172,6 @@ function onPaneClick(e) {
 
   setTimeout(() => {
     if (Date.now() - lastClickTime < DOUBLE_CLICK_MS) return
-    // Convert screen coords to graph coords
     const graphPos = project({ x: e.clientX, y: e.clientY })
     newNodePos.value = graphPos
     newNodeScreenPos.value = { x: e.clientX, y: e.clientY }
@@ -149,31 +199,64 @@ function createRootNode() {
   store.createGraphTask({ title: 'Новая цель', pos: { x: 200, y: 80 } })
 }
 
+// #2 — Auto-layout: force dagre positions → write directly to nodes + persist
 function autoLayout() {
-  const tasks = store.graphTasks
+  const tasks = visibleTasks.value
+  if (tasks.length === 0) return
   const positions = forceLayoutWithDagre(tasks)
-  for (const t of tasks) {
-    const pos = positions.get(t.id)
-    if (pos) store.setGraphPos(t.id, pos)
-  }
+  nodes.value = nodes.value.map(node => {
+    const pos = positions.get(node.id)
+    if (pos) {
+      store.setGraphPos(node.id, pos)
+      return { ...node, position: { x: pos.x, y: pos.y } }
+    }
+    return node
+  })
   nextTick(() => fitView({ padding: 0.2 }))
 }
 
-// Add existing task to graph
+// ── #3 — Add existing task: Teleport dropdown ─────────────────────────────
 const showAddExisting = ref(false)
+const addExistingBtn = ref(null)
+const dropdownPos = ref({ top: 0, left: 0 })
+
 const nonGraphTasks = computed(() =>
   store.tasks.filter(t => !store.graphTaskIds.has(t.id))
 )
+
+function toggleAddExisting() {
+  showAddExisting.value = !showAddExisting.value
+  if (showAddExisting.value) {
+    nextTick(() => {
+      const rect = addExistingBtn.value?.getBoundingClientRect()
+      if (rect) {
+        dropdownPos.value = { top: rect.bottom + 4, left: rect.left }
+      }
+    })
+  }
+}
 
 function addExistingToGraph(id) {
   store.addTaskToGraph(id)
   showAddExisting.value = false
 }
 
-// Close add-existing dropdown on outside click
 function onAddExistingKey(e) {
   if (e.key === 'Escape') showAddExisting.value = false
 }
+
+function onOutsideClick(e) {
+  if (
+    showAddExisting.value &&
+    !e.target.closest?.('.tb-dropdown-teleport') &&
+    e.target !== addExistingBtn.value
+  ) {
+    showAddExisting.value = false
+  }
+}
+
+onMounted(() => document.addEventListener('click', onOutsideClick))
+onUnmounted(() => document.removeEventListener('click', onOutsideClick))
 </script>
 
 <template>
@@ -182,22 +265,18 @@ function onAddExistingKey(e) {
     <div class="graph-toolbar">
       <button class="tb-btn" @click="createRootNode">✚ Цель</button>
       <button class="tb-btn" @click="autoLayout">⤢ Авто-раскладка</button>
-      <div class="tb-dropdown-wrap" @keydown="onAddExistingKey">
-        <button class="tb-btn" @click.stop="showAddExisting = !showAddExisting">
-          ＋ С доски…
-        </button>
-        <div v-if="showAddExisting" class="tb-dropdown" @click.stop>
-          <div class="tb-dropdown-hint" v-if="nonGraphTasks.length === 0">
-            Все задачи уже на доске
-          </div>
-          <button
-            v-for="t in nonGraphTasks"
-            :key="t.id"
-            class="tb-dropdown-item"
-            @click="addExistingToGraph(t.id)"
-          >{{ t.title }}</button>
-        </div>
-      </div>
+      <button
+        ref="addExistingBtn"
+        class="tb-btn"
+        @click.stop="toggleAddExisting"
+      >＋ С доски…</button>
+      <!-- #9 — Hide completed toggle -->
+      <button
+        class="tb-btn"
+        :class="{ active: hideCompleted }"
+        @click="hideCompleted = !hideCompleted"
+        :title="hideCompleted ? 'Показать завершённые' : 'Скрыть завершённые'"
+      >{{ hideCompleted ? '👁 Завершённые скрыты' : '👁 Скрыть завершённые' }}</button>
     </div>
 
     <!-- Vue Flow canvas -->
@@ -205,6 +284,7 @@ function onAddExistingKey(e) {
       :nodes="nodes"
       :edges="edges"
       :delete-key-code="['Delete', 'Backspace']"
+      :elements-selectable="true"
       :min-zoom="0.2"
       :max-zoom="2"
       fit-view-on-init
@@ -212,11 +292,11 @@ function onAddExistingKey(e) {
       @connect="onConnect"
       @node-drag-stop="onNodeDragStop"
       @node-double-click="onNodeDoubleClick"
+      @edge-click="onEdgeClick"
       @edges-change="onEdgesChange"
       @pane-click="onPaneClick"
       @pane-mouse-down.stop
     >
-      <!-- Custom task node -->
       <template #node-task="nodeProps">
         <GraphTaskNode
           :data="nodeProps.data"
@@ -228,7 +308,7 @@ function onAddExistingKey(e) {
       <Controls />
     </VueFlow>
 
-    <!-- Inline new-node input (floating over canvas) -->
+    <!-- Inline new-node input -->
     <Teleport to="body">
       <div
         v-if="showNewNodeInput"
@@ -249,6 +329,27 @@ function onAddExistingKey(e) {
           />
           <button class="new-node-ok" @click="confirmNewNode">✓</button>
         </div>
+      </div>
+    </Teleport>
+
+    <!-- #3 — Add existing: Teleport dropdown -->
+    <Teleport to="body">
+      <div
+        v-if="showAddExisting"
+        class="tb-dropdown-teleport"
+        :style="{ top: dropdownPos.top + 'px', left: dropdownPos.left + 'px' }"
+        @keydown="onAddExistingKey"
+        @click.stop
+      >
+        <div v-if="nonGraphTasks.length === 0" class="tbd-hint">
+          Все задачи уже на доске
+        </div>
+        <button
+          v-for="t in nonGraphTasks"
+          :key="t.id"
+          class="tbd-item"
+          @click="addExistingToGraph(t.id)"
+        >{{ t.title }}</button>
       </div>
     </Teleport>
 
@@ -280,6 +381,7 @@ function onAddExistingKey(e) {
   flex-shrink: 0;
   background: var(--bg-secondary);
   z-index: 10;
+  flex-wrap: wrap;
 }
 
 .tb-btn {
@@ -296,46 +398,9 @@ function onAddExistingKey(e) {
   background: var(--bg-hover);
   color: var(--text-primary);
 }
-
-.tb-dropdown-wrap {
-  position: relative;
-}
-.tb-dropdown {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  min-width: 200px;
-  max-height: 260px;
-  overflow-y: auto;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-lg);
-  z-index: 100;
-  padding: 4px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.tb-dropdown-hint {
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-  padding: 6px 10px;
-}
-.tb-dropdown-item {
-  padding: 6px 10px;
-  border-radius: var(--radius-sm);
-  font-size: 0.85rem;
-  color: var(--text);
-  text-align: left;
-  transition: background var(--transition);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.tb-dropdown-item:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+.tb-btn.active {
+  background: var(--accent-bg);
+  color: var(--accent);
 }
 
 .vf-canvas {
@@ -343,7 +408,7 @@ function onAddExistingKey(e) {
   min-height: 0;
 }
 
-/* Empty state (shown when no nodes) */
+/* Empty state */
 .graph-empty {
   position: absolute;
   inset: 60px 0 0 0;
@@ -397,8 +462,48 @@ function onAddExistingKey(e) {
 }
 </style>
 
-<!-- Override Vue Flow theme to match our CSS vars (not scoped) -->
+<!-- Teleport dropdown (global, not scoped) -->
 <style>
+.tb-dropdown-teleport {
+  position: fixed;
+  min-width: 220px;
+  max-width: 320px;
+  max-height: 300px;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  z-index: 9999;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.tbd-hint {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  padding: 8px 12px;
+}
+.tbd-item {
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+  font-weight: 400;
+  color: var(--text-primary);
+  text-align: left;
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background var(--transition);
+  cursor: pointer;
+}
+.tbd-item:hover {
+  background: var(--bg-hover);
+}
+
+/* Override Vue Flow theme */
 .vf-canvas .vue-flow__background {
   background: var(--bg-secondary);
 }
@@ -419,10 +524,12 @@ function onAddExistingKey(e) {
 }
 .vf-canvas .vue-flow__edge-path {
   stroke: var(--accent);
-  stroke-width: 1.5;
+  stroke-width: 2;
 }
-.vf-canvas .vue-flow__edge.selected .vue-flow__edge-path {
-  stroke-width: 2.5;
+.vf-canvas .vue-flow__edge.selected .vue-flow__edge-path,
+.vf-canvas .vue-flow__edge:hover .vue-flow__edge-path {
+  stroke-width: 3;
+  cursor: pointer;
 }
 .vf-canvas .vue-flow__handle {
   border-color: var(--bg);

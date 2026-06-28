@@ -21,6 +21,8 @@ const isEditing = ref(false)
 const errorMsg = ref('')
 const titleRef = ref(null)
 
+const onGraph = ref(false)
+
 const recurringType = ref(null)
 const recurringInterval = ref(1)
 const recurringWeekdays = ref([1, 2, 3, 4, 5])
@@ -97,6 +99,7 @@ watch(() => props.task, (task) => {
     projectId.value = task.projectId ?? null
     dueDate.value = task.dueDate ? task.dueDate.slice(0, 10) : ''
     subtasks.value = task.subtasks?.map(s => ({ ...s })) ?? []
+    onGraph.value = task.onGraph ?? false
     if (task.recurring) {
       recurringType.value = task.recurring.type
       recurringInterval.value = task.recurring.interval ?? 1
@@ -114,6 +117,7 @@ watch(() => props.task, (task) => {
     projectId.value = store.activeProjectId ?? null
     dueDate.value = ''
     subtasks.value = []
+    onGraph.value = false
     clearRecurring()
   }
   nextTick(() => titleRef.value?.focus())
@@ -146,6 +150,7 @@ function handleSubmit() {
     dueDate: dueDate.value || null,
     subtasks: subtasks.value,
     recurring: recurringObject.value,
+    onGraph: onGraph.value,
   }
 
   if (isEditing.value) {
@@ -213,6 +218,14 @@ function handleBackdropClick(e) {
             >{{ p.name }}</option>
           </select>
         </div>
+
+        <label class="graph-toggle">
+          <span class="toggle-track" :class="{ on: onGraph }">
+            <span class="toggle-thumb" />
+          </span>
+          <input type="checkbox" v-model="onGraph" class="sr-only" />
+          <span class="toggle-text">🗺️ Показать на карте целей</span>
+        </label>
 
         <div class="field">
           <label class="label">Повтор</label>
@@ -614,6 +627,53 @@ select.input {
 .weekday-btn.active {
   background: var(--accent);
   color: white;
+}
+
+/* Graph toggle */
+.graph-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+  padding: 2px 0;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+.toggle-track {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--border);
+  transition: background var(--transition);
+  flex-shrink: 0;
+}
+.toggle-track.on {
+  background: var(--accent);
+}
+.toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  transition: transform var(--transition);
+}
+.toggle-track.on .toggle-thumb {
+  transform: translateX(16px);
+}
+.toggle-text {
+  font-size: 0.9rem;
+  color: var(--text);
 }
 
 @media (max-width: 640px) {

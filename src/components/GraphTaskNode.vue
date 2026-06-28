@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
 import { useTasksStore } from '../stores/tasks.js'
+import { localDateStr } from '../utils.js'
 
 const props = defineProps({
   data: { type: Object, required: true },
@@ -20,8 +21,19 @@ const childCount = computed(() =>
   store.tasks.filter(t => t.parentIds?.includes(task.value.id)).length
 )
 
-const priorityClass = ['low', 'medium', 'high']
+// Priority: 0=low(grey), 1=medium(amber), 2=high(red)
 const priorityColors = ['#6b7280', '#f59e0b', '#ef4444']
+const priorityColor = computed(() => priorityColors[task.value.priority ?? 1])
+
+const isOverdue = computed(() => {
+  if (!task.value.dueDate || task.value.completed) return false
+  return task.value.dueDate.slice(0, 10) < localDateStr(new Date())
+})
+
+const dueDateFormatted = computed(() => {
+  if (!task.value.dueDate) return null
+  return task.value.dueDate.slice(5).replace('-', '.')
+})
 
 function toggle() {
   store.toggleTask(task.value.id)
@@ -41,41 +53,45 @@ function removeFromGraph() {
 
 <template>
   <div class="graph-node" :class="{ completed: task.completed }">
-    <!-- Target handle (incoming edges from parent) -->
+    <!-- Priority colour stripe -->
+    <div class="priority-stripe" :style="{ background: priorityColor }" />
+
+    <!-- Incoming connection handle -->
     <Handle type="target" :position="Position.Top" class="graph-handle" />
 
     <div class="node-inner">
+      <!-- Checkbox -->
       <label class="node-check" @click.stop>
         <input type="checkbox" :checked="task.completed" @change="toggle" />
         <span class="checkmark" />
       </label>
 
+      <!-- Content -->
       <div class="node-body" @dblclick.stop="emit('edit', task.id)">
         <div class="node-title" :class="{ done: task.completed }">{{ task.title }}</div>
-        <div class="node-meta">
+        <div class="node-meta" v-if="project || childCount > 0 || task.dueDate">
           <span
             v-if="project"
-            class="node-badge project-dot"
+            class="meta-dot"
             :style="{ background: project.color }"
+            :title="project.name"
           />
-          <span
-            v-if="task.priority !== undefined"
-            class="node-priority"
-            :style="{ background: priorityColors[task.priority] }"
-          />
-          <span v-if="childCount > 0" class="node-badge child-count">
+          <span v-if="childCount > 0" class="meta-chip children-chip">
             {{ childCount }} ↓
           </span>
-          <span v-if="task.dueDate" class="node-badge due-badge">
-            {{ task.dueDate.slice(5) }}
-          </span>
+          <span
+            v-if="task.dueDate"
+            class="meta-chip due-chip"
+            :class="{ overdue: isOverdue }"
+          >{{ dueDateFormatted }}</span>
         </div>
       </div>
 
+      <!-- Remove button -->
       <button class="node-remove" @click.stop="removeFromGraph" title="Убрать с доски">×</button>
     </div>
 
-    <!-- Source handle (outgoing edges to children) -->
+    <!-- Outgoing connection handle -->
     <Handle type="source" :position="Position.Bottom" class="graph-handle" />
   </div>
 </template>
@@ -86,34 +102,45 @@ function removeFromGraph() {
   min-height: 64px;
   background: var(--bg);
   border: 1.5px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-sm);
-  transition: border-color var(--transition), box-shadow var(--transition);
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  transition: border-color var(--transition), box-shadow var(--transition), opacity var(--transition);
   position: relative;
+  overflow: hidden;
   cursor: default;
 }
 .graph-node:hover {
   border-color: var(--accent);
-  box-shadow: var(--shadow-lg);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 0 0 3px var(--accent-bg);
 }
 .graph-node.completed {
-  opacity: 0.55;
-  background: var(--bg-secondary);
+  opacity: 0.45;
+}
+
+/* Priority colour strip at top */
+.priority-stripe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: 10px 10px 0 0;
 }
 
 .node-inner {
   display: flex;
   align-items: flex-start;
   gap: 6px;
-  padding: 10px 10px 8px;
+  padding: 14px 8px 8px 10px; /* top padding accounts for stripe */
 }
 
+/* Circle checkbox */
 .node-check {
   position: relative;
   width: 16px;
   height: 16px;
   flex-shrink: 0;
-  margin-top: 2px;
+  margin-top: 1px;
   cursor: pointer;
 }
 .node-check input {
@@ -127,8 +154,11 @@ function removeFromGraph() {
   position: absolute;
   inset: 0;
   border: 2px solid var(--border);
-  border-radius: 3px;
+  border-radius: 50%;
   transition: all var(--transition);
+}
+.node-check:hover .checkmark {
+  border-color: var(--complete);
 }
 .node-check input:checked + .checkmark {
   background: var(--complete);
@@ -153,7 +183,7 @@ function removeFromGraph() {
 }
 
 .node-title {
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   font-weight: 500;
   color: var(--text-primary);
   line-height: 1.35;
@@ -168,55 +198,54 @@ function removeFromGraph() {
   display: flex;
   align-items: center;
   gap: 4px;
-  margin-top: 4px;
+  margin-top: 5px;
   flex-wrap: wrap;
 }
 
-.node-badge {
-  font-size: 0.68rem;
-  font-weight: 600;
-  padding: 1px 5px;
-  border-radius: 999px;
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-}
-
-.project-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  padding: 0;
-}
-
-.node-priority {
-  width: 6px;
-  height: 6px;
+.meta-dot {
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   flex-shrink: 0;
+  display: inline-block;
 }
 
-.child-count {
+.meta-chip {
+  font-size: 0.66rem;
+  font-weight: 600;
+  padding: 2px 5px;
+  border-radius: 999px;
+}
+
+.children-chip {
   background: var(--accent-bg);
   color: var(--accent);
 }
 
-.due-badge {
+.due-chip {
   background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+.due-chip.overdue {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--priority-high);
 }
 
+/* Remove button */
 .node-remove {
   flex-shrink: 0;
   width: 18px;
   height: 18px;
-  border-radius: 3px;
+  border-radius: 4px;
   font-size: 1rem;
   line-height: 1;
   color: var(--text-secondary);
   opacity: 0;
-  transition: opacity var(--transition);
+  transition: opacity var(--transition), background var(--transition);
   display: flex;
   align-items: center;
   justify-content: center;
+  margin-top: 0;
 }
 .graph-node:hover .node-remove {
   opacity: 0.5;
@@ -224,19 +253,23 @@ function removeFromGraph() {
 .node-remove:hover {
   opacity: 1 !important;
   color: var(--priority-high);
-  background: var(--priority-high-bg);
+  background: rgba(239, 68, 68, 0.12);
 }
 
+/* Connection handles — visible on hover */
 .graph-handle {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   background: var(--accent);
-  border: 2px solid var(--bg);
+  border: 2.5px solid var(--bg);
   border-radius: 50%;
   opacity: 0;
-  transition: opacity var(--transition);
+  transition: opacity 0.15s, transform 0.15s;
 }
 .graph-node:hover .graph-handle {
   opacity: 1;
+}
+.graph-node:hover .graph-handle:hover {
+  transform: scale(1.3);
 }
 </style>

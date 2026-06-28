@@ -11,18 +11,22 @@ const store = useTasksStore()
 const localTasks = ref([...store.filteredTasks])
 watch(() => store.filteredTasks, (val) => { localTasks.value = [...val] })
 
-// Disable drag when the order wouldn't be meaningful
-const dragDisabled = computed(() =>
-  !!store.searchQuery || store.filterStatus === 'completed' || store.sortBy !== 'manual'
+// Reorder is only meaningful in manual mode without search/completed filter.
+// Dragging OUT to sidebar drop-zones always works (drag is never disabled).
+const reorderEnabled = computed(() =>
+  store.sortBy === 'manual' && !store.searchQuery && store.filterStatus !== 'completed'
 )
 
 function handleDragStart(evt) {
   store.draggingTaskId = evt.item?.dataset?.id ?? null
 }
 
-function handleDragEnd() {
+function handleDragEnd(evt) {
   store.draggingTaskId = null
-  store.reorderTasks(localTasks.value.map(t => t.id))
+  // Only persist order on same-list reorder, not cross-list (drag-to-sidebar)
+  if (reorderEnabled.value && evt.from === evt.to) {
+    store.reorderTasks(localTasks.value.map(t => t.id))
+  }
 }
 
 // Sort dropdown
@@ -166,7 +170,7 @@ const agendaTotal = computed(() => {
         v-model="localTasks"
         item-key="id"
         handle=".drag-handle"
-        :disabled="dragDisabled"
+        :sort="reorderEnabled"
         :animation="150"
         ghost-class="drag-ghost"
         :group="{ name: 'tasks', pull: true, put: false }"
@@ -176,7 +180,7 @@ const agendaTotal = computed(() => {
         <template #item="{ element: task }">
           <TaskCard
             :task="task"
-            :show-drag-handle="!dragDisabled"
+            :show-drag-handle="true"
             @toggle="store.toggleTask(task.id)"
             @edit="emit('edit', task.id)"
             @delete="store.deleteTask(task.id)"
