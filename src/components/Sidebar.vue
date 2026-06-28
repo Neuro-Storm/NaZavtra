@@ -1,6 +1,6 @@
 <script setup>
-import { ref, computed, nextTick } from 'vue'
-import draggable from 'vuedraggable'
+import { ref, computed } from 'vue'
+import Sortable from 'sortablejs'
 import { useTasksStore } from '../stores/tasks.js'
 
 const props = defineProps({
@@ -55,29 +55,34 @@ function exitApp() {
 
 const fileInput = ref(null)
 
-// ── Vuedraggable drop zones (shared group 'tasks' with TaskList) ──────────
-const dropBucket = ref([])
 const isDragging = computed(() => !!store.draggingTaskId)
 
-function onDropProject(evt, projectId) {
-  const id = evt.item?.dataset?.id
-  if (id) store.updateTask(id, { projectId })
-  nextTick(() => { dropBucket.value = [] })
+// ── Drop-zone directive ────────────────────────────────────────────────────
+// Attaches a bare SortableJS instance to the element so it can accept drops
+// from the 'tasks' group (TaskList draggable). The dropped DOM node is removed
+// immediately in onAdd before Vue reconciles, avoiding vdom conflicts.
+const vDropZone = {
+  mounted(el, binding) {
+    el.__dropCallback = binding.value
+    el.__dropSortable = Sortable.create(el, {
+      group: { name: 'tasks', put: true, pull: false },
+      sort: false,
+      onAdd(evt) {
+        const id = evt.item?.dataset?.id
+        if (evt.item.parentNode === el) el.removeChild(evt.item)
+        if (id) el.__dropCallback(id)
+      },
+    })
+  },
+  updated(el, binding) {
+    el.__dropCallback = binding.value
+  },
+  beforeUnmount(el) {
+    el.__dropSortable?.destroy()
+    delete el.__dropSortable
+    delete el.__dropCallback
+  },
 }
-
-function onDropAll(evt) {
-  const id = evt.item?.dataset?.id
-  if (id) store.updateTask(id, { projectId: null })
-  nextTick(() => { dropBucket.value = [] })
-}
-
-function onDropGraph(evt) {
-  const id = evt.item?.dataset?.id
-  if (id) store.addTaskToGraph(id)
-  nextTick(() => { dropBucket.value = [] })
-}
-
-const dropGroup = { name: 'tasks', pull: false, put: true }
 </script>
 
 <template>
@@ -88,28 +93,22 @@ const dropGroup = { name: 'tasks', pull: false, put: true }
     </div>
 
     <nav class="nav">
-      <!-- Карта целей — drop zone to add task to graph -->
-      <draggable
-        tag="div"
+      <!-- Карта целей — drop zone -->
+      <div
+        v-drop-zone="(id) => store.addTaskToGraph(id)"
         class="nav-item"
         :class="{ active: store.activeProjectId === 'graph', 'drop-ready': isDragging }"
-        :group="dropGroup"
-        :list="dropBucket"
-        item-key="id"
-        :sort="false"
-        ghost-class="nav-drop-ghost"
-        @add="onDropGraph"
+        role="button"
+        tabindex="0"
         @click="store.activeProjectId = 'graph'; emit('close')"
+        @keydown.enter.space.prevent="store.activeProjectId = 'graph'; emit('close')"
       >
-        <template #item><span style="display:none" /></template>
-        <template #header>
-          <span class="nav-icon">🗺️</span>
-          Карта целей
-          <span class="nav-count">{{ store.graphTasks.length }}</span>
-        </template>
-      </draggable>
+        <span class="nav-icon">🗺️</span>
+        Карта целей
+        <span class="nav-count">{{ store.graphTasks.length }}</span>
+      </div>
 
-      <!-- Сегодня — not a drop zone -->
+      <!-- Сегодня — no drop zone -->
       <button
         class="nav-item"
         :class="{ active: store.activeProjectId === 'today' }"
@@ -121,27 +120,21 @@ const dropGroup = { name: 'tasks', pull: false, put: true }
       </button>
 
       <!-- Все задачи — drop zone to remove project -->
-      <draggable
-        tag="div"
+      <div
+        v-drop-zone="(id) => store.updateTask(id, { projectId: null })"
         class="nav-item"
         :class="{ active: !store.activeProjectId, 'drop-ready': isDragging }"
-        :group="dropGroup"
-        :list="dropBucket"
-        item-key="id"
-        :sort="false"
-        ghost-class="nav-drop-ghost"
-        @add="onDropAll"
+        role="button"
+        tabindex="0"
         @click="store.activeProjectId = null; emit('close')"
+        @keydown.enter.space.prevent="store.activeProjectId = null; emit('close')"
       >
-        <template #item><span style="display:none" /></template>
-        <template #header>
-          <span class="nav-icon">📋</span>
-          Все задачи
-          <span class="nav-count">{{ store.tasks.length }}</span>
-        </template>
-      </draggable>
+        <span class="nav-icon">📋</span>
+        Все задачи
+        <span class="nav-count">{{ store.tasks.length }}</span>
+      </div>
 
-      <!-- Повторяющиеся — not a drop zone -->
+      <!-- Повторяющиеся — no drop zone -->
       <button
         class="nav-item"
         :class="{ active: store.activeProjectId === 'recurring' }"
@@ -153,33 +146,27 @@ const dropGroup = { name: 'tasks', pull: false, put: true }
       </button>
 
       <!-- Projects — drop zones to assign project -->
-      <draggable
+      <div
         v-for="project in store.projects"
         :key="project.id"
-        tag="div"
+        v-drop-zone="(id) => store.updateTask(id, { projectId: project.id })"
         class="nav-item"
         :class="{ active: store.activeProjectId === project.id, 'drop-ready': isDragging }"
-        :group="dropGroup"
-        :list="dropBucket"
-        item-key="id"
-        :sort="false"
-        ghost-class="nav-drop-ghost"
-        @add="(evt) => onDropProject(evt, project.id)"
+        role="button"
+        tabindex="0"
         @click="store.activeProjectId = project.id; emit('close')"
+        @keydown.enter.space.prevent="store.activeProjectId = project.id; emit('close')"
       >
-        <template #item><span style="display:none" /></template>
-        <template #header>
-          <span class="nav-dot" :style="{ background: project.color }" />
-          <span class="truncate">{{ project.name }}</span>
-          <span class="nav-count">{{ store.taskCountByProject[project.id] ?? 0 }}</span>
-          <button
-            v-if="project.id !== 'inbox'"
-            class="nav-delete"
-            @click.stop="confirmDeleteProject(project.id, project.name)"
-            title="Удалить проект"
-          >×</button>
-        </template>
-      </draggable>
+        <span class="nav-dot" :style="{ background: project.color }" />
+        <span class="truncate">{{ project.name }}</span>
+        <span class="nav-count">{{ store.taskCountByProject[project.id] ?? 0 }}</span>
+        <button
+          v-if="project.id !== 'inbox'"
+          class="nav-delete"
+          @click.stop="confirmDeleteProject(project.id, project.name)"
+          title="Удалить проект"
+        >×</button>
+      </div>
     </nav>
 
     <div class="sidebar-section">
@@ -300,6 +287,8 @@ const dropGroup = { name: 'tasks', pull: false, put: true }
   text-align: left;
   width: 100%;
   position: relative;
+  cursor: pointer;
+  user-select: none;
 }
 .nav-item:hover {
   background: var(--bg-hover);
@@ -314,15 +303,6 @@ const dropGroup = { name: 'tasks', pull: false, put: true }
   background: var(--bg-hover);
   outline: 1px dashed var(--border);
   outline-offset: -1px;
-}
-/* Ghost is invisible but stays in layout so SortableJS can track insertion point */
-:global(.nav-drop-ghost) {
-  opacity: 0 !important;
-  height: 0 !important;
-  padding: 0 !important;
-  margin: 0 !important;
-  overflow: hidden !important;
-  pointer-events: none !important;
 }
 
 .nav-icon {

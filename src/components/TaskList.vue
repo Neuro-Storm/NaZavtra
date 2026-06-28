@@ -173,7 +173,7 @@ const agendaTotal = computed(() => {
         :sort="reorderEnabled"
         :animation="150"
         ghost-class="drag-ghost"
-        :group="{ name: 'tasks', pull: true, put: false }"
+        :group="{ name: 'tasks', pull: 'clone', put: false }"
         @start="handleDragStart"
         @end="handleDragEnd"
       >
