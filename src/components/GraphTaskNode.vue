@@ -11,7 +11,9 @@ const props = defineProps({
 const emit = defineEmits(['edit'])
 
 const store = useTasksStore()
-const task = computed(() => props.data.task)
+// Read directly from reactive store so any store mutation (toggle, edit)
+// is immediately reflected without relying on VueFlow to propagate slot props.
+const task = computed(() => store.tasks.find(t => t.id === props.data.task.id) ?? props.data.task)
 
 const project = computed(() =>
   store.projects.find(p => p.id === task.value.projectId)

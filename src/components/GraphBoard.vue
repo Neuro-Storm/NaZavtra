@@ -344,12 +344,15 @@ onUnmounted(() => document.removeEventListener('click', onOutsideClick))
         <div v-if="nonGraphTasks.length === 0" class="tbd-hint">
           Все задачи уже на доске
         </div>
-        <button
+        <div
           v-for="t in nonGraphTasks"
           :key="t.id"
           class="tbd-item"
+          role="button"
+          tabindex="0"
           @click="addExistingToGraph(t.id)"
-        >{{ t.title }}</button>
+          @keydown.enter.space.prevent="addExistingToGraph(t.id)"
+        >{{ t.title }}</div>
       </div>
     </Teleport>
 
@@ -486,21 +489,26 @@ onUnmounted(() => document.removeEventListener('click', onOutsideClick))
   padding: 8px 12px;
 }
 .tbd-item {
+  display: block;
   padding: 7px 12px;
   border-radius: var(--radius-sm);
-  font-size: 0.9rem;
+  font-size: 14px;
   font-weight: 400;
-  color: var(--text-primary);
+  color: var(--text-primary, #212529);
   text-align: left;
   width: 100%;
+  box-sizing: border-box;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   transition: background var(--transition);
   cursor: pointer;
+  user-select: none;
 }
-.tbd-item:hover {
+.tbd-item:hover,
+.tbd-item:focus-visible {
   background: var(--bg-hover);
+  outline: none;
 }
 
 /* Override Vue Flow theme */

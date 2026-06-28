@@ -315,9 +315,14 @@ const dropGroup = { name: 'tasks', pull: false, put: true }
   outline: 1px dashed var(--border);
   outline-offset: -1px;
 }
-/* Ghost element hidden inside drop zones */
+/* Ghost is invisible but stays in layout so SortableJS can track insertion point */
 :global(.nav-drop-ghost) {
-  display: none !important;
+  opacity: 0 !important;
+  height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+  pointer-events: none !important;
 }
 
 .nav-icon {
