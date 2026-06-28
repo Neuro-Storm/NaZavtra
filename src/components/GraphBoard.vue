@@ -426,6 +426,7 @@ onUnmounted(() => document.removeEventListener('click', onOutsideClick))
 }
 
 .tbd-item {
+  flex-shrink: 0; /* prevent flex container from squashing items to slivers */
   display: block;
   width: 100%;
   box-sizing: border-box;
