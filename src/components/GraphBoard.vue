@@ -218,7 +218,6 @@ function autoLayout() {
 // ── #3 — Add existing task: Teleport dropdown ─────────────────────────────
 const showAddExisting = ref(false)
 const addExistingBtn = ref(null)
-const dropdownPos = ref({ top: 0, left: 0 })
 
 const nonGraphTasks = computed(() =>
   store.tasks.filter(t => !store.graphTaskIds.has(t.id))
@@ -226,14 +225,6 @@ const nonGraphTasks = computed(() =>
 
 function toggleAddExisting() {
   showAddExisting.value = !showAddExisting.value
-  if (showAddExisting.value) {
-    nextTick(() => {
-      const rect = addExistingBtn.value?.getBoundingClientRect()
-      if (rect) {
-        dropdownPos.value = { top: rect.bottom + 4, left: rect.left }
-      }
-    })
-  }
 }
 
 function addExistingToGraph(id) {
@@ -248,8 +239,7 @@ function onAddExistingKey(e) {
 function onOutsideClick(e) {
   if (
     showAddExisting.value &&
-    !e.target.closest?.('.tb-dropdown-teleport') &&
-    e.target !== addExistingBtn.value
+    !e.target.closest?.('.tb-add-wrapper')
   ) {
     showAddExisting.value = false
   }
@@ -265,11 +255,30 @@ onUnmounted(() => document.removeEventListener('click', onOutsideClick))
     <div class="graph-toolbar">
       <button class="tb-btn" @click="createRootNode">✚ Цель</button>
       <button class="tb-btn" @click="autoLayout">⤢ Авто-раскладка</button>
-      <button
-        ref="addExistingBtn"
-        class="tb-btn"
-        @click.stop="toggleAddExisting"
-      >＋ С доски…</button>
+      <div class="tb-add-wrapper">
+        <button
+          ref="addExistingBtn"
+          class="tb-btn"
+          @click.stop="toggleAddExisting"
+        >＋ С доски…</button>
+        <div
+          v-if="showAddExisting"
+          class="tbd-dropdown"
+          @keydown="onAddExistingKey"
+          @click.stop
+        >
+          <div v-if="nonGraphTasks.length === 0" class="tbd-hint">
+            Все задачи уже на доске
+          </div>
+          <button
+            v-for="t in nonGraphTasks"
+            :key="t.id"
+            type="button"
+            class="tbd-item"
+            @click="addExistingToGraph(t.id)"
+          >{{ t.title }}</button>
+        </div>
+      </div>
       <!-- #9 — Hide completed toggle -->
       <button
         class="tb-btn"
@@ -332,30 +341,6 @@ onUnmounted(() => document.removeEventListener('click', onOutsideClick))
       </div>
     </Teleport>
 
-    <!-- #3 — Add existing: Teleport dropdown -->
-    <Teleport to="body">
-      <div
-        v-if="showAddExisting"
-        class="tb-dropdown-teleport"
-        :style="{ top: dropdownPos.top + 'px', left: dropdownPos.left + 'px' }"
-        @keydown="onAddExistingKey"
-        @click.stop
-      >
-        <div v-if="nonGraphTasks.length === 0" class="tbd-hint">
-          Все задачи уже на доске
-        </div>
-        <div
-          v-for="t in nonGraphTasks"
-          :key="t.id"
-          class="tbd-item"
-          role="button"
-          tabindex="0"
-          @click="addExistingToGraph(t.id)"
-          @keydown.enter.space.prevent="addExistingToGraph(t.id)"
-        >{{ t.title }}</div>
-      </div>
-    </Teleport>
-
     <!-- Empty state -->
     <div v-if="nodes.length === 0" class="graph-empty">
       <div class="graph-empty-icon">🗺️</div>
@@ -372,7 +357,6 @@ onUnmounted(() => document.removeEventListener('click', onOutsideClick))
   flex-direction: column;
   position: relative;
   min-height: 0;
-  overflow: hidden;
 }
 
 .graph-toolbar {
@@ -409,6 +393,63 @@ onUnmounted(() => document.removeEventListener('click', onOutsideClick))
 .vf-canvas {
   flex: 1;
   min-height: 0;
+}
+
+/* Add-existing dropdown — inline, no Teleport */
+.tb-add-wrapper {
+  position: relative;
+}
+
+.tbd-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 220px;
+  max-width: 320px;
+  max-height: 300px;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  z-index: 9999;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tbd-hint {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  padding: 8px 12px;
+}
+
+.tbd-item {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: transparent;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+.tbd-item:hover {
+  background: var(--bg-hover);
+}
+.tbd-item:focus-visible {
+  background: var(--bg-hover);
+  outline: none;
 }
 
 /* Empty state */
@@ -465,52 +506,8 @@ onUnmounted(() => document.removeEventListener('click', onOutsideClick))
 }
 </style>
 
-<!-- Teleport dropdown (global, not scoped) -->
+<!-- VueFlow theme overrides (global, not scoped) -->
 <style>
-.tb-dropdown-teleport {
-  position: fixed;
-  min-width: 220px;
-  max-width: 320px;
-  max-height: 300px;
-  overflow-y: auto;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-lg);
-  z-index: 9999;
-  padding: 4px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.tbd-hint {
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-  padding: 8px 12px;
-}
-.tbd-item {
-  display: block;
-  padding: 7px 12px;
-  border-radius: var(--radius-sm);
-  font-size: 14px;
-  font-weight: 400;
-  color: var(--text-primary, #212529);
-  text-align: left;
-  width: 100%;
-  box-sizing: border-box;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  transition: background var(--transition);
-  cursor: pointer;
-  user-select: none;
-}
-.tbd-item:hover,
-.tbd-item:focus-visible {
-  background: var(--bg-hover);
-  outline: none;
-}
-
 /* Override Vue Flow theme */
 .vf-canvas .vue-flow__background {
   background: var(--bg-secondary);
