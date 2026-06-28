@@ -62,6 +62,36 @@ function ensureKey() {
   return key
 }
 
+// ─── Task field migration ──────────────────────────────────────
+
+function ensureTaskFields(task) {
+  if (!Array.isArray(task.parentIds)) task.parentIds = []
+  if (!('graphPos' in task)) task.graphPos = null
+  if (!('onGraph' in task)) task.onGraph = false
+  if (!('completedCount' in task)) task.completedCount = 0
+  if (!task.updatedAt) task.updatedAt = task.createdAt || new Date().toISOString()
+  return task
+}
+
+// ─── Graph cycle detection ─────────────────────────────────────
+// Returns true if adding parentId as a parent of taskId would create a cycle.
+// Traverses downward (parent→child via parentIds reverse index) from taskId
+// to check if parentId is already a descendant.
+function wouldCreateCycle(taskId, parentId, tasks) {
+  const visited = new Set()
+  const stack = [taskId]
+  while (stack.length) {
+    const cur = stack.pop()
+    if (cur === parentId) return true
+    if (visited.has(cur)) continue
+    visited.add(cur)
+    for (const t of tasks) {
+      if (t.parentIds?.includes(cur)) stack.push(t.id)
+    }
+  }
+  return false
+}
+
 // ─── Storage ────────────────────────────────────────────────────
 
 function loadData() {
@@ -69,10 +99,16 @@ function loadData() {
     if (existsSync(DATA_FILE)) {
       const raw = readFileSync(DATA_FILE, 'utf-8')
       const s = loadSettings()
+      let parsed
       if (s.encryptEnabled) {
-        try { return JSON.parse(decrypt(raw, ensureKey())) } catch { /* fallthrough to plaintext parse */ }
+        try { parsed = JSON.parse(decrypt(raw, ensureKey())) } catch { parsed = JSON.parse(raw) }
+      } else {
+        parsed = JSON.parse(raw)
       }
-      return JSON.parse(raw)
+      if (Array.isArray(parsed.tasks)) {
+        parsed.tasks = parsed.tasks.map(ensureTaskFields)
+      }
+      return parsed
     }
   } catch {}
   if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true })
@@ -153,6 +189,16 @@ function valRecurring(v) {
   return null
 }
 
+function valParentIds(v, tasks) {
+  if (v == null) return null
+  if (!Array.isArray(v)) return 'parentIds должен быть массивом строк'
+  for (const pid of v) {
+    if (typeof pid !== 'string') return 'parentIds: каждый элемент должен быть строкой'
+    if (!tasks.find(t => t.id === pid)) return `parentIds: задача с id "${pid}" не найдена`
+  }
+  return null
+}
+
 function getNextDueDate(task) {
   if (!task.recurring || !task.dueDate) return null
   const d = new Date(task.dueDate + 'T00:00:00Z')
@@ -216,16 +262,17 @@ const tools = [
   },
   {
     name: 'nazavtra_list_tasks',
-    description: 'Список задач с возможностью фильтрации по проекту, статусу и поиску',
+    description: 'Список задач с возможностью фильтрации по проекту, статусу, поиску и признаку карты целей',
     inputSchema: {
       type: 'object',
       properties: {
         projectId: { type: 'string', description: 'ID проекта для фильтрации' },
         status: { type: 'string', enum: ['all', 'active', 'completed', 'overdue', 'recurring'], description: 'Статус: all, active, completed, overdue, recurring' },
         search: { type: 'string', description: 'Поиск по тексту задачи и описанию' },
+        onGraph: { type: 'boolean', description: 'true — только задачи на карте целей, false — только вне карты' },
       },
     },
-    handler: async ({ projectId, status, search }) => {
+    handler: async ({ projectId, status, search, onGraph }) => {
       const { tasks } = loadData()
       let filtered = [...tasks]
       if (projectId) filtered = filtered.filter(t => t.projectId === projectId)
@@ -243,13 +290,16 @@ const tools = [
           (t.description || '').toLowerCase().includes(q)
         )
       }
+      if (onGraph != null) {
+        filtered = filtered.filter(t => !!t.onGraph === onGraph)
+      }
       filtered.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
       return { content: [{ type: 'text', text: JSON.stringify({ success: true, data: filtered, total: filtered.length }) }] }
     },
   },
   {
     name: 'nazavtra_get_task',
-    description: 'Детальная информация о задаче по ID',
+    description: 'Детальная информация о задаче по ID, включая связи на карте целей',
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string', description: 'ID задачи' } },
@@ -260,7 +310,22 @@ const tools = [
       const task = tasks.find(t => t.id === id)
       if (!task) return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'Задача не найдена' }) }] }
       const project = projects.find(p => p.id === task.projectId)
-      return { content: [{ type: 'text', text: JSON.stringify({ success: true, data: { ...task, projectName: project?.name || null } }) }] }
+      const parentTasks = (task.parentIds || [])
+        .map(pid => tasks.find(t => t.id === pid))
+        .filter(Boolean)
+        .map(t => ({ id: t.id, title: t.title }))
+      const children = tasks
+        .filter(t => t.parentIds?.includes(id))
+        .map(t => ({ id: t.id, title: t.title }))
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            success: true,
+            data: { ...task, projectName: project?.name || null, parentTasks, children },
+          }),
+        }],
+      }
     },
   },
   {
@@ -287,31 +352,47 @@ const tools = [
           },
           required: ['type'],
         },
+        parentIds: { type: 'array', items: { type: 'string' }, description: 'ID родительских задач на карте целей' },
+        onGraph: { type: 'boolean', description: 'Показывать задачу на карте целей' },
       },
       required: ['title'],
     },
-    handler: async ({ title, priority, dueDate, projectId, description, subtasks, recurring }) => {
-      const err = valString(title, MAX_TITLE_LENGTH, 'title') || valPriority(priority) || valDueDate(dueDate) || valString(description, MAX_DESC_LENGTH, 'description') || valRecurring(recurring)
+    handler: async ({ title, priority, dueDate, projectId, description, subtasks, recurring, parentIds, onGraph }) => {
+      const data = loadData()
+      const err =
+        valString(title, MAX_TITLE_LENGTH, 'title') ||
+        valPriority(priority) ||
+        valDueDate(dueDate) ||
+        valString(description, MAX_DESC_LENGTH, 'description') ||
+        valRecurring(recurring) ||
+        valParentIds(parentIds, data.tasks)
       if (err) return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: err }) }] }
       if (!title) return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'Название задачи обязательно' }) }] }
       if (recurring && !dueDate) return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'Повторяющаяся задача требует dueDate' }) }] }
-      const data = loadData()
       const subArr = (subtasks ?? []).slice(0, MAX_SUBTASKS)
       for (const s of subArr) {
         const e = valString(s, MAX_SUBTASK_TITLE_LENGTH, 'subtask')
         if (e) return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: e }) }] }
       }
+      const now = new Date().toISOString()
+      const resolvedParentIds = parentIds ?? []
+      const resolvedOnGraph = onGraph ?? (resolvedParentIds.length > 0 ? true : false)
       const task = {
         id: uid(),
         title,
         completed: false,
+        completedCount: 0,
         priority: priority ?? 1,
         dueDate: dueDate ?? null,
         projectId: projectId ?? 'inbox',
         description: description ?? null,
         subtasks: subArr.map(s => ({ id: uid(), title: s, completed: false })),
         recurring: recurring ?? null,
-        createdAt: new Date().toISOString(),
+        parentIds: resolvedParentIds,
+        onGraph: resolvedOnGraph,
+        graphPos: null,
+        createdAt: now,
+        updatedAt: now,
         order: data.tasks.length,
       }
       data.tasks.push(task)
@@ -343,11 +424,24 @@ const tools = [
             duration: { type: 'number' },
           },
         },
+        onGraph: { type: 'boolean', description: 'Показывать задачу на карте целей' },
+        graphPos: {
+          description: 'Позиция узла на карте целей или null чтобы сбросить',
+          oneOf: [
+            { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' } }, required: ['x', 'y'] },
+            { type: 'null' },
+          ],
+        },
       },
       required: ['id'],
     },
     handler: async ({ id, ...updates }) => {
-      const err = valString(updates.title, MAX_TITLE_LENGTH, 'title') || valPriority(updates.priority) || valDueDate(updates.dueDate) || valString(updates.description, MAX_DESC_LENGTH, 'description') || valRecurring(updates.recurring)
+      const err =
+        valString(updates.title, MAX_TITLE_LENGTH, 'title') ||
+        valPriority(updates.priority) ||
+        valDueDate(updates.dueDate) ||
+        valString(updates.description, MAX_DESC_LENGTH, 'description') ||
+        valRecurring(updates.recurring)
       if (err) return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: err }) }] }
       const data = loadData()
       const task = data.tasks.find(t => t.id === id)
@@ -355,13 +449,14 @@ const tools = [
       for (const [key, val] of Object.entries(updates)) {
         if (val !== undefined) task[key] = val
       }
+      task.updatedAt = new Date().toISOString()
       saveData(data)
       return { content: [{ type: 'text', text: JSON.stringify({ success: true, message: 'Задача обновлена', data: task }) }] }
     },
   },
   {
     name: 'nazavtra_delete_task',
-    description: 'Удалить задачу по ID',
+    description: 'Удалить задачу по ID. Автоматически удаляет ссылки на неё из parentIds других задач.',
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string', description: 'ID задачи' } },
@@ -373,6 +468,12 @@ const tools = [
       if (idx === -1) return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'Задача не найдена' }) }] }
       const title = data.tasks[idx].title
       data.tasks.splice(idx, 1)
+      // Clean up parentIds references in remaining tasks
+      for (const t of data.tasks) {
+        if (t.parentIds?.includes(id)) {
+          t.parentIds = t.parentIds.filter(pid => pid !== id)
+        }
+      }
       saveData(data)
       return { content: [{ type: 'text', text: JSON.stringify({ success: true, message: 'Задача удалена', title }) }] }
     },
@@ -403,6 +504,7 @@ const tools = [
         task.completed = !task.completed
       }
 
+      task.updatedAt = new Date().toISOString()
       saveData(data)
       return { content: [{ type: 'text', text: JSON.stringify({ success: true, data: task }) }] }
     },
@@ -440,8 +542,15 @@ const tools = [
       if (id === 'inbox') return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'Нельзя удалить проект "Входящие"' }) }] }
       const project = data.projects.find(p => p.id === id)
       if (!project) return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'Проект не найден' }) }] }
+      const deletedIds = new Set(data.tasks.filter(t => t.projectId === id).map(t => t.id))
       data.projects = data.projects.filter(p => p.id !== id)
       data.tasks = data.tasks.filter(t => t.projectId !== id)
+      // Clean up parentIds references to deleted tasks
+      for (const t of data.tasks) {
+        if (t.parentIds?.some(pid => deletedIds.has(pid))) {
+          t.parentIds = t.parentIds.filter(pid => !deletedIds.has(pid))
+        }
+      }
       saveData(data)
       return { content: [{ type: 'text', text: JSON.stringify({ success: true, message: 'Проект удалён', name: project.name }) }] }
     },
@@ -459,7 +568,128 @@ const tools = [
         if (t.completed || !t.dueDate) return false
         return new Date(t.dueDate) < new Date(new Date().toDateString())
       }).length
-      return { content: [{ type: 'text', text: JSON.stringify({ success: true, data: { total, active, completed, overdue } }) }] }
+      const onGraph = tasks.filter(t => t.onGraph || t.parentIds?.length > 0).length
+      return { content: [{ type: 'text', text: JSON.stringify({ success: true, data: { total, active, completed, overdue, onGraph } }) }] }
+    },
+  },
+  {
+    name: 'nazavtra_add_parent_link',
+    description: 'Добавить связь «родитель → потомок» на карте целей. Проверяет отсутствие циклов.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        taskId: { type: 'string', description: 'ID дочерней задачи' },
+        parentId: { type: 'string', description: 'ID родительской задачи' },
+      },
+      required: ['taskId', 'parentId'],
+    },
+    handler: async ({ taskId, parentId }) => {
+      if (taskId === parentId) {
+        return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'Задача не может быть родителем самой себя' }) }] }
+      }
+      const data = loadData()
+      const task = data.tasks.find(t => t.id === taskId)
+      if (!task) return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: `Задача "${taskId}" не найдена` }) }] }
+      const parent = data.tasks.find(t => t.id === parentId)
+      if (!parent) return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: `Родительская задача "${parentId}" не найдена` }) }] }
+      if (task.parentIds?.includes(parentId)) {
+        return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'Связь уже существует' }) }] }
+      }
+      if (wouldCreateCycle(taskId, parentId, data.tasks)) {
+        return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'Нельзя создать связь: образуется цикл' }) }] }
+      }
+      task.parentIds = [...(task.parentIds || []), parentId]
+      task.onGraph = true
+      parent.onGraph = true
+      task.updatedAt = new Date().toISOString()
+      saveData(data)
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({ success: true, message: `Связь добавлена: «${parent.title}» → «${task.title}»` }),
+        }],
+      }
+    },
+  },
+  {
+    name: 'nazavtra_remove_parent_link',
+    description: 'Удалить связь «родитель → потомок» на карте целей.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        taskId: { type: 'string', description: 'ID дочерней задачи' },
+        parentId: { type: 'string', description: 'ID родительской задачи' },
+      },
+      required: ['taskId', 'parentId'],
+    },
+    handler: async ({ taskId, parentId }) => {
+      const data = loadData()
+      const task = data.tasks.find(t => t.id === taskId)
+      if (!task) return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: `Задача "${taskId}" не найдена` }) }] }
+      const parent = data.tasks.find(t => t.id === parentId)
+      if (!parent) return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: `Родительская задача "${parentId}" не найдена` }) }] }
+      if (!task.parentIds?.includes(parentId)) {
+        return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'Связь не существует' }) }] }
+      }
+      task.parentIds = task.parentIds.filter(pid => pid !== parentId)
+      task.updatedAt = new Date().toISOString()
+      saveData(data)
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({ success: true, message: `Связь удалена: «${parent.title}» → «${task.title}»` }),
+        }],
+      }
+    },
+  },
+  {
+    name: 'nazavtra_get_graph',
+    description: 'Получить карту целей: задачи на графе и рёбра между ними',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        hideCompleted: { type: 'boolean', description: 'Скрыть выполненные задачи (по умолчанию false)' },
+      },
+    },
+    handler: async ({ hideCompleted = false }) => {
+      const { tasks, projects } = loadData()
+      // A task is on the graph if it has onGraph=true, or has parentIds, or is referenced as a parent
+      const referencedAsParent = new Set(tasks.flatMap(t => t.parentIds || []))
+      const graphTasks = tasks.filter(t =>
+        t.onGraph || (t.parentIds?.length > 0) || referencedAsParent.has(t.id)
+      )
+      const visibleTasks = hideCompleted ? graphTasks.filter(t => !t.completed) : graphTasks
+      const visibleIds = new Set(visibleTasks.map(t => t.id))
+
+      const projectMap = Object.fromEntries(projects.map(p => [p.id, p.name]))
+
+      const taskData = visibleTasks.map(t => ({
+        id: t.id,
+        title: t.title,
+        completed: t.completed,
+        priority: t.priority ?? 1,
+        projectId: t.projectId ?? null,
+        projectName: projectMap[t.projectId] ?? null,
+        graphPos: t.graphPos ?? null,
+        parentIds: (t.parentIds || []).filter(pid => visibleIds.has(pid)),
+        onGraph: t.onGraph ?? false,
+      }))
+
+      const edges = []
+      for (const t of visibleTasks) {
+        for (const pid of t.parentIds || []) {
+          if (visibleIds.has(pid)) {
+            edges.push({ source: pid, target: t.id })
+          }
+        }
+      }
+
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({ success: true, data: { tasks: taskData, edges, total: taskData.length } }),
+        }],
+      }
     },
   },
 ]

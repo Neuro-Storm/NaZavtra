@@ -433,6 +433,7 @@ export const useTasksStore = defineStore('tasks', () => {
 
   function exportData() {
     const data = {
+      version: 2,
       tasks: tasks.value,
       projects: projects.value,
       exportedAt: new Date().toISOString(),
