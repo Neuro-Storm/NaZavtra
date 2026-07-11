@@ -131,7 +131,7 @@ const vDropZone = {
       >
         <span class="nav-icon">📋</span>
         Все задачи
-        <span class="nav-count">{{ store.tasks.length }}</span>
+        <span class="nav-count">{{ store.activeTasksCount }}</span>
       </div>
 
       <!-- Повторяющиеся — no drop zone -->

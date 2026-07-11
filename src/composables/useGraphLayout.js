@@ -1,7 +1,16 @@
 import dagre from '@dagrejs/dagre'
 
 const NODE_WIDTH = 180
-const NODE_HEIGHT = 64
+const BASE_HEIGHT = 22
+const LINE_HEIGHT = 17
+const CHARS_PER_LINE = 16
+const META_HEIGHT = 20
+
+function estimateNodeHeight(task) {
+  const lines = Math.ceil(task.title.length / CHARS_PER_LINE) || 1
+  const hasMeta = !!(task.projectId || task.dueDate || (task.parentIds && task.parentIds.length > 0))
+  return BASE_HEIGHT + lines * LINE_HEIGHT + (hasMeta ? META_HEIGHT : 0)
+}
 
 /**
  * Compute dagre layout positions for nodes that don't have a saved graphPos.
@@ -13,11 +22,14 @@ const NODE_HEIGHT = 64
  */
 export function layoutWithDagre(tasks) {
   const g = new dagre.graphlib.Graph()
-  g.setGraph({ rankdir: 'TB', nodesep: 40, ranksep: 60 })
+  g.setGraph({ rankdir: 'TB', nodesep: 60, ranksep: 100 })
   g.setDefaultEdgeLabel(() => ({}))
 
+  const heightMap = new Map()
   for (const t of tasks) {
-    g.setNode(t.id, { width: NODE_WIDTH, height: NODE_HEIGHT })
+    const h = estimateNodeHeight(t)
+    heightMap.set(t.id, h)
+    g.setNode(t.id, { width: NODE_WIDTH, height: h })
   }
 
   for (const t of tasks) {
@@ -36,10 +48,11 @@ export function layoutWithDagre(tasks) {
       positions.set(t.id, t.graphPos)
     } else {
       const node = g.node(t.id)
+      const h = heightMap.get(t.id) ?? BASE_HEIGHT
       if (node) {
         positions.set(t.id, {
           x: node.x - NODE_WIDTH / 2,
-          y: node.y - NODE_HEIGHT / 2,
+          y: node.y - h / 2,
         })
       } else {
         positions.set(t.id, { x: 0, y: 0 })
@@ -56,11 +69,14 @@ export function layoutWithDagre(tasks) {
  */
 export function forceLayoutWithDagre(tasks) {
   const g = new dagre.graphlib.Graph()
-  g.setGraph({ rankdir: 'TB', nodesep: 40, ranksep: 60 })
+  g.setGraph({ rankdir: 'TB', nodesep: 60, ranksep: 100 })
   g.setDefaultEdgeLabel(() => ({}))
 
+  const heightMap = new Map()
   for (const t of tasks) {
-    g.setNode(t.id, { width: NODE_WIDTH, height: NODE_HEIGHT })
+    const h = estimateNodeHeight(t)
+    heightMap.set(t.id, h)
+    g.setNode(t.id, { width: NODE_WIDTH, height: h })
   }
 
   for (const t of tasks) {
@@ -76,8 +92,9 @@ export function forceLayoutWithDagre(tasks) {
   const positions = new Map()
   for (const t of tasks) {
     const node = g.node(t.id)
+    const h = heightMap.get(t.id) ?? BASE_HEIGHT
     positions.set(t.id, node
-      ? { x: node.x - NODE_WIDTH / 2, y: node.y - NODE_HEIGHT / 2 }
+      ? { x: node.x - NODE_WIDTH / 2, y: node.y - h / 2 }
       : { x: 0, y: 0 })
   }
 

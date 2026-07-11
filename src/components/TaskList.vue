@@ -61,12 +61,20 @@ const agendaTotal = computed(() => {
 
     <!-- Search bar (hidden in today view) -->
     <div v-if="store.activeProjectId !== 'today'" class="search-bar">
-      <input
-        v-model="store.searchQuery"
-        class="search-input"
-        type="text"
-        placeholder="Поиск задач..."
-      />
+      <div class="search-wrapper">
+        <input
+          v-model="store.searchQuery"
+          class="search-input"
+          type="text"
+          placeholder="Поиск задач..."
+        />
+        <button
+          v-if="store.searchQuery"
+          class="search-clear"
+          @click="store.searchQuery = ''"
+          title="Очистить поиск"
+        >×</button>
+      </div>
       <div class="filter-chips">
         <button
           class="chip"
@@ -117,6 +125,7 @@ const agendaTotal = computed(() => {
             :key="task.id"
             :task="task"
             :show-drag-handle="false"
+            :show-graph-badge="store.graphTaskIds.has(task.id)"
             @toggle="store.toggleTask(task.id)"
             @edit="emit('edit', task.id)"
             @delete="store.deleteTask(task.id)"
@@ -129,6 +138,7 @@ const agendaTotal = computed(() => {
             :key="task.id"
             :task="task"
             :show-drag-handle="false"
+            :show-graph-badge="store.graphTaskIds.has(task.id)"
             @toggle="store.toggleTask(task.id)"
             @edit="emit('edit', task.id)"
             @delete="store.deleteTask(task.id)"
@@ -141,6 +151,7 @@ const agendaTotal = computed(() => {
             :key="task.id"
             :task="task"
             :show-drag-handle="false"
+            :show-graph-badge="store.graphTaskIds.has(task.id)"
             @toggle="store.toggleTask(task.id)"
             @edit="emit('edit', task.id)"
             @delete="store.deleteTask(task.id)"
@@ -181,6 +192,7 @@ const agendaTotal = computed(() => {
           <TaskCard
             :task="task"
             :show-drag-handle="true"
+            :show-graph-badge="store.graphTaskIds.has(task.id)"
             @toggle="store.toggleTask(task.id)"
             @edit="emit('edit', task.id)"
             @delete="store.deleteTask(task.id)"
@@ -208,16 +220,22 @@ const agendaTotal = computed(() => {
   flex-wrap: wrap;
 }
 
-.search-input {
+.search-wrapper {
   flex: 1;
   min-width: 120px;
-  padding: 8px 12px;
+  position: relative;
+}
+
+.search-input {
+  width: 100%;
+  padding: 8px 32px 8px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg);
   outline: none;
   transition: all var(--transition);
   font-size: 0.9rem;
+  box-sizing: border-box;
 }
 .search-input:focus {
   border-color: var(--accent);
@@ -225,6 +243,35 @@ const agendaTotal = computed(() => {
 }
 .search-input::placeholder {
   color: var(--text-secondary);
+}
+
+.search-clear {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity var(--transition), background var(--transition);
+}
+.search-wrapper:hover .search-clear,
+.search-input:focus ~ .search-clear {
+  opacity: 1;
+}
+.search-clear:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .filter-chips {

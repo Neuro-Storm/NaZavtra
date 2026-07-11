@@ -5,6 +5,7 @@ import { useTasksStore } from '../stores/tasks.js'
 const props = defineProps({
   task: { type: Object, required: true },
   showDragHandle: { type: Boolean, default: false },
+  showGraphBadge: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['toggle', 'edit', 'delete'])
@@ -136,6 +137,7 @@ function nextOccurrenceText(task) {
         <span v-if="task.recurring" class="recurring-badge">
           {{ nextOccurrenceText(task) }}
         </span>
+        <span v-if="showGraphBadge" class="graph-badge">🗺️ на карте</span>
       </div>
     </div>
 
@@ -335,6 +337,15 @@ function nextOccurrenceText(task) {
 }
 
 .recurring-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.graph-badge {
   font-size: 0.7rem;
   font-weight: 600;
   padding: 1px 7px;

@@ -43,6 +43,22 @@ function handleImport(e) {
 }
 
 const dataPath = isDev ? '~/.nazavtra/data.json' : 'localStorage'
+
+const updateStatus = ref('')
+async function checkForUpdates() {
+  updateStatus.value = ''
+  try {
+    const reg = await navigator.serviceWorker?.getRegistration()
+    if (!reg) {
+      updateStatus.value = 'Service Worker недоступен'
+      return
+    }
+    await reg.update()
+    updateStatus.value = 'Проверка завершена. Обновления применятся при перезагрузке.'
+  } catch {
+    updateStatus.value = 'Не удалось проверить обновления'
+  }
+}
 </script>
 
 <template>
@@ -109,6 +125,16 @@ const dataPath = isDev ? '~/.nazavtra/data.json' : 'localStorage'
               <button class="btn" @click="triggerImport">📥 Импорт JSON</button>
               <input ref="fileInput" type="file" accept=".json" hidden @change="handleImport" />
             </div>
+          </section>
+
+          <!-- Обновление -->
+          <section class="settings-section">
+            <h3 class="section-title">🔄 Обновление</h3>
+            <div class="btn-row">
+              <button class="btn" @click="checkForUpdates">🔄 Проверить обновления</button>
+            </div>
+            <p v-if="updateStatus" class="hint">{{ updateStatus }}</p>
+            <p class="hint">Приложение обновляется автоматически при перезагрузке страницы</p>
           </section>
 
           <!-- О программе -->

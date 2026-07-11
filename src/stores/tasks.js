@@ -51,7 +51,7 @@ export const useTasksStore = defineStore('tasks', () => {
   const projects = ref((local?.projects ?? [...DEFAULT_PROJECTS]).map(ensureUpdatedAt))
   const activeProjectId = ref(local?.activeProjectId ?? null)
   const searchQuery = ref('')
-  const filterStatus = ref('all')
+  const filterStatus = ref(local?.filterStatus ?? 'active')
   const activeTaskId = ref(null)
   const sortBy = ref(local?.sortBy ?? 'manual')
   const draggingTaskId = ref(null)
@@ -86,6 +86,7 @@ export const useTasksStore = defineStore('tasks', () => {
       projects: projects.value,
       activeProjectId: activeProjectId.value,
       sortBy: sortBy.value,
+      filterStatus: filterStatus.value,
     }
     saveLocal(data)
     if (import.meta.env.DEV) postData(data)
@@ -163,10 +164,12 @@ export const useTasksStore = defineStore('tasks', () => {
   const taskCountByProject = computed(() => {
     const m = {}
     for (const t of tasks.value) {
-      if (t.projectId) m[t.projectId] = (m[t.projectId] ?? 0) + 1
+      if (t.projectId && !t.completed) m[t.projectId] = (m[t.projectId] ?? 0) + 1
     }
     return m
   })
+
+  const activeTasksCount = computed(() => tasks.value.filter(t => !t.completed).length)
 
   const activeProject = computed(() => {
     if (activeProjectId.value === 'recurring') {
@@ -478,6 +481,7 @@ export const useTasksStore = defineStore('tasks', () => {
     agenda,
     stats,
     taskCountByProject,
+    activeTasksCount,
     graphTaskIds,
     graphTasks,
     graphEdges,
