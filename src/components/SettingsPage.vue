@@ -132,8 +132,8 @@ async function checkForUpdates() {
             </div>
           </section>
 
-          <!-- Обновление -->
-          <section class="settings-section">
+          <!-- Обновление (только в продакшн) -->
+          <section v-if="!isDev" class="settings-section">
             <h3 class="section-title">🔄 Обновление</h3>
             <div class="btn-row">
               <button class="btn" @click="checkForUpdates">🔄 Проверить обновления</button>
