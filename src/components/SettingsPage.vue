@@ -45,12 +45,17 @@ function handleImport(e) {
 const dataPath = isDev ? '~/.nazavtra/data.json' : 'localStorage'
 
 const updateStatus = ref('')
+const swSupported = 'serviceWorker' in navigator
 async function checkForUpdates() {
   updateStatus.value = ''
+  if (!swSupported || !window.isSecureContext) {
+    updateStatus.value = 'Service Worker доступен только при открытии через HTTP(S)'
+    return
+  }
   try {
-    const reg = await navigator.serviceWorker?.getRegistration()
+    const reg = await navigator.serviceWorker.getRegistration()
     if (!reg) {
-      updateStatus.value = 'Service Worker недоступен'
+      updateStatus.value = 'Service Worker не зарегистрирован'
       return
     }
     await reg.update()
