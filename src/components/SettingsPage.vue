@@ -45,23 +45,45 @@ function handleImport(e) {
 const dataPath = isDev ? '~/.nazavtra/data.json' : 'localStorage'
 
 const updateStatus = ref('')
-const swSupported = 'serviceWorker' in navigator
+const updateLoading = ref(false)
+
 async function checkForUpdates() {
   updateStatus.value = ''
-  if (!swSupported || !window.isSecureContext) {
-    updateStatus.value = 'Service Worker доступен только при открытии через HTTP(S)'
-    return
-  }
+  updateLoading.value = true
   try {
-    const reg = await navigator.serviceWorker.getRegistration()
-    if (!reg) {
-      updateStatus.value = 'Service Worker не зарегистрирован'
-      return
+    const res = await fetch('https://api.github.com/repos/Neuro-Storm/NaZavtra/commits?sha=main&per_page=1')
+    if (!res.ok) throw new Error()
+    const [commit] = await res.json()
+    const latest = {
+      sha: commit.sha.slice(0, 7),
+      message: commit.commit.message.split('\n')[0],
+      date: new Date(commit.commit.author.date).toLocaleString('ru'),
     }
-    await reg.update()
-    updateStatus.value = 'Проверка завершена. Обновления применятся при перезагрузке.'
+    updateStatus.value = `Последний коммит: ${latest.sha} — ${latest.message} (${latest.date})`
+
+    if (isDev) {
+      updateStatus.value += '\nОбновление будет применено при перезапуске сервера.'
+    } else {
+      updateStatus.value += '\nОбновления применяются автоматически при перезагрузке.'
+    }
   } catch {
     updateStatus.value = 'Не удалось проверить обновления'
+  } finally {
+    updateLoading.value = false
+  }
+}
+
+async function pullAndUpdate() {
+  updateStatus.value = ''
+  updateLoading.value = true
+  try {
+    await fetch('/api/update', { method: 'POST' })
+    updateStatus.value = 'Обновление загружено. Перезапуск сервера...'
+    setTimeout(() => location.reload(), 3000)
+  } catch {
+    updateStatus.value = 'Не удалось обновить. Перезапустите сервер вручную.'
+  } finally {
+    updateLoading.value = false
   }
 }
 </script>
@@ -132,14 +154,19 @@ async function checkForUpdates() {
             </div>
           </section>
 
-          <!-- Обновление (только в продакшн) -->
-          <section v-if="!isDev" class="settings-section">
+          <!-- Обновление -->
+          <section class="settings-section">
             <h3 class="section-title">🔄 Обновление</h3>
             <div class="btn-row">
-              <button class="btn" @click="checkForUpdates">🔄 Проверить обновления</button>
+              <button class="btn" :disabled="updateLoading" @click="checkForUpdates">
+                {{ updateLoading ? '⏳ Проверка...' : '🔍 Проверить обновления' }}
+              </button>
+              <button v-if="isDev" class="btn btn-primary" :disabled="updateLoading" @click="pullAndUpdate">
+                ⬇️ Загрузить и перезапустить
+              </button>
             </div>
-            <p v-if="updateStatus" class="hint">{{ updateStatus }}</p>
-            <p class="hint">Приложение обновляется автоматически при перезагрузке страницы</p>
+            <p v-if="updateStatus" class="hint" style="white-space: pre-line">{{ updateStatus }}</p>
+            <p v-if="!isDev" class="hint">Приложение обновляется автоматически при перезагрузке страницы</p>
           </section>
 
           <!-- О программе -->

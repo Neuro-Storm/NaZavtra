@@ -4,6 +4,7 @@ import { VitePWA } from 'vite-plugin-pwa'
 import { join } from 'path'
 import { homedir } from 'os'
 import { readFileSync, existsSync } from 'fs'
+import { execSync } from 'child_process'
 import nazavtraMCP from './vite-plugin-nazavtra-mcp.js'
 
 const settingsPath = join(homedir(), '.nazavtra', 'settings.json')
@@ -72,6 +73,41 @@ export default defineConfig({
 </head><body><p>Приложение закрыто. Можете закрыть вкладку.</p></body></html>`)
             setTimeout(() => process.exit(0), 500)
           })
+        })
+      },
+    },
+    {
+      name: 'update-command',
+      configureServer(server) {
+        server.middlewares.use('/api/update', (req, res) => {
+          if (req.method !== 'POST') {
+            res.statusCode = 405
+            res.setHeader('Content-Type', 'text/plain')
+            res.end('Method not allowed')
+            return
+          }
+
+          const origin = req.headers.origin || ''
+          if (origin && !origin.startsWith('http://localhost:')) {
+            res.statusCode = 403
+            res.setHeader('Content-Type', 'text/plain')
+            res.end('Forbidden')
+            return
+          }
+
+          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+          res.end(`<!doctype html>
+<html lang="ru"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>НаЗавтра — обновление</title>
+<style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100dvh;margin:0;background:#1a1b1e;color:#e9ecef;text-align:center}p{font-size:1.2rem;opacity:.7}</style>
+</head><body><p>Обновление загружено. Перезапуск...</p></body></html>`)
+
+          try {
+            execSync('git pull', { timeout: 30000 })
+          } catch {}
+
+          setTimeout(() => process.exit(0), 500)
         })
       },
     },
