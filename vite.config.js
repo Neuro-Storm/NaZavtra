@@ -95,19 +95,31 @@ export default defineConfig({
             return
           }
 
-          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
-          res.end(`<!doctype html>
+          let pullOutput = ''
+          try {
+            pullOutput = execSync('git pull', { timeout: 30000, encoding: 'utf-8' })
+          } catch {}
+
+          const serverFiles = ['vite.config.js', 'vite-plugin-nazavtra-mcp.js', 'package.json', 'package-lock.json']
+          const needsRestart = serverFiles.some(f => pullOutput.includes(f))
+
+          if (needsRestart) {
+            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+            res.end(`<!doctype html>
 <html lang="ru"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>НаЗавтра — обновление</title>
 <style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100dvh;margin:0;background:#1a1b1e;color:#e9ecef;text-align:center}p{font-size:1.2rem;opacity:.7}</style>
-</head><body><p>Обновление загружено. Перезапуск...</p></body></html>`)
-
-          try {
-            execSync('git pull', { timeout: 30000 })
-          } catch {}
-
-          setTimeout(() => process.exit(0), 500)
+</head><body><p>Обновление требует перезапуска. Выполните: npm run dev</p></body></html>`)
+          } else {
+            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+            res.end(`<!doctype html>
+<html lang="ru"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>НаЗавтра — обновление</title>
+<style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100dvh;margin:0;background:#1a1b1e;color:#e9ecef;text-align:center}p{font-size:1.2rem;opacity:.7}</style>
+</head><body><p>Обновление загружено. Обновите страницу.</p></body></html>`)
+          }
         })
       },
     },
