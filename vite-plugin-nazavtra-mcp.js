@@ -2,6 +2,7 @@ import { homedir } from 'os'
 import { join, dirname } from 'path'
 import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from 'fs'
 import { randomBytes, createCipheriv, createDecipheriv, randomUUID } from 'crypto'
+import { execSync } from 'child_process'
 
 const DATA_DIR = join(homedir(), '.nazavtra')
 const DATA_FILE = join(DATA_DIR, 'data.json')
@@ -890,6 +891,23 @@ export default function nazavtraMCP() {
         }
 
         next()
+      })
+
+      // ── /api/version ─────────────────────────────────────────
+      server.middlewares.use('/api/version', (req, res, next) => {
+        if (req.method !== 'GET') return next()
+
+        let sha = 'unknown'
+        try {
+          sha = execSync('git log --oneline -1', { encoding: 'utf-8' }).split(' ')[0]
+        } catch {}
+
+        const json = JSON.stringify({ sha })
+        res.writeHead(200, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Content-Length': Buffer.byteLength(json),
+        })
+        res.end(json)
       })
     },
   }

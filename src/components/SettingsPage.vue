@@ -51,20 +51,30 @@ async function checkForUpdates() {
   updateStatus.value = ''
   updateLoading.value = true
   try {
-    const res = await fetch('https://api.github.com/repos/Neuro-Storm/NaZavtra/commits?sha=main&per_page=1')
-    if (!res.ok) throw new Error()
-    const [commit] = await res.json()
+    const [versionRes, commitsRes] = await Promise.all([
+      fetch('/api/version'),
+      fetch('https://api.github.com/repos/Neuro-Storm/NaZavtra/commits?sha=main&per_page=1'),
+    ])
+    if (!commitsRes.ok) throw new Error()
+
+    const { sha: currentSha } = await versionRes.json()
+    const [commit] = await commitsRes.json()
+    const latestSha = commit.sha.slice(0, 7)
     const latest = {
-      sha: commit.sha.slice(0, 7),
+      sha: latestSha,
       message: commit.commit.message.split('\n')[0],
       date: new Date(commit.commit.author.date).toLocaleString('ru'),
     }
-    updateStatus.value = `Последний коммит: ${latest.sha} — ${latest.message} (${latest.date})`
 
-    if (isDev) {
-      updateStatus.value += '\nОбновление будет применено при перезапуске сервера.'
+    if (currentSha === latestSha) {
+      updateStatus.value = `У вас последняя версия: ${currentSha}`
     } else {
-      updateStatus.value += '\nОбновления применяются автоматически при перезагрузке.'
+      updateStatus.value = `Доступно обновление: ${latest.sha} — ${latest.message} (${latest.date})`
+      if (isDev) {
+        updateStatus.value += '\nОбновление будет применено при перезапуске сервера.'
+      } else {
+        updateStatus.value += '\nОбновления применяются автоматически при перезагрузке.'
+      }
     }
   } catch {
     updateStatus.value = 'Не удалось проверить обновления'
@@ -77,9 +87,14 @@ async function pullAndUpdate() {
   updateStatus.value = ''
   updateLoading.value = true
   try {
-    await fetch('/api/update', { method: 'POST' })
-    updateStatus.value = 'Обновление загружено. Перезапуск сервера...'
-    setTimeout(() => location.reload(), 3000)
+    const res = await fetch('/api/update', { method: 'POST' })
+    const text = await res.text()
+    if (text.includes('требует перезапуска')) {
+      updateStatus.value = 'Обновление требует перезапуска. Выполните: npm run dev'
+    } else {
+      updateStatus.value = 'Обновление загружено. Обновите страницу.'
+      setTimeout(() => location.reload(), 2000)
+    }
   } catch {
     updateStatus.value = 'Не удалось обновить. Перезапустите сервер вручную.'
   } finally {
