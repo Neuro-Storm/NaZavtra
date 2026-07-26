@@ -14,7 +14,7 @@ const store = useTasksStore()
 const { project, fitView } = useVueFlow()
 
 // ── Hide-completed filter (#9) ─────────────────────────────────────────────
-const hideCompleted = ref(false)
+const hideCompleted = ref(true)
 
 const visibleTasks = computed(() =>
   hideCompleted.value
