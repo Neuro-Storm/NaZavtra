@@ -39,6 +39,7 @@ function postData(data) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
+    keepalive: true,
   }).catch(() => {})
 }
 
@@ -70,12 +71,22 @@ export const useTasksStore = defineStore('tasks', () => {
   onScopeDispose(() => window.removeEventListener('storage', storageHandler))
 
   if (import.meta.env.DEV) {
-    fetchData().then(data => {
-      if (data) {
-        tasks.value = (data.tasks ?? []).map(ensureUpdatedAt)
-        projects.value = (data.projects ?? [...DEFAULT_PROJECTS]).map(ensureUpdatedAt)
-        activeProjectId.value = data.activeProjectId ?? null
-        console.info('[dev] state loaded from /api/data')
+    fetchData().then(serverData => {
+      if (!serverData) return
+
+      const localMax = (local?.tasks ?? []).reduce(
+        (max, t) => (t.updatedAt > max ? t.updatedAt : max), '')
+      const serverMax = (serverData.tasks ?? []).reduce(
+        (max, t) => (t.updatedAt > max ? t.updatedAt : max), '')
+
+      if (serverMax > localMax || !local?.tasks?.length) {
+        tasks.value = (serverData.tasks ?? []).map(ensureUpdatedAt)
+        projects.value = (serverData.projects ?? [...DEFAULT_PROJECTS]).map(ensureUpdatedAt)
+        activeProjectId.value = serverData.activeProjectId ?? null
+        console.info('[dev] state loaded from /api/data (server is newer)')
+      } else {
+        console.info('[dev] localStorage is newer, syncing to server')
+        persist()
       }
     })
   }
@@ -91,6 +102,21 @@ export const useTasksStore = defineStore('tasks', () => {
     saveLocal(data)
     if (import.meta.env.DEV) postData(data)
   }
+
+  window.addEventListener('beforeunload', () => {
+    const data = {
+      tasks: tasks.value,
+      projects: projects.value,
+      activeProjectId: activeProjectId.value,
+      sortBy: sortBy.value,
+      filterStatus: filterStatus.value,
+    }
+    saveLocal(data)
+    if (import.meta.env.DEV && navigator.sendBeacon) {
+      navigator.sendBeacon('/api/data',
+        new Blob([JSON.stringify(data)], { type: 'application/json' }))
+    }
+  })
 
   const agenda = computed(() => {
     const todayStr = localDateStr(new Date())
