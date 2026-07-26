@@ -11,6 +11,7 @@ const store = useTasksStore()
 
 const newProjectName = ref('')
 const showInput = ref(false)
+const showMeta = ref(false)
 
 function addProject() {
   const name = newProjectName.value.trim()
@@ -144,6 +145,32 @@ const vDropZone = {
         Повторяющиеся
         <span class="nav-count">{{ store.recurringTasks.length }}</span>
       </button>
+
+      <!-- Meta-goals accordion -->
+      <div v-if="store.metaGoals.length > 0" class="meta-section">
+        <button
+          class="nav-item meta-header"
+          @click="showMeta = !showMeta"
+        >
+          <span class="nav-icon">🎯</span>
+          Метацели
+          <span class="nav-count">{{ store.metaGoals.length }}</span>
+          <span class="meta-chevron" :class="{ open: showMeta }">▸</span>
+        </button>
+        <div v-if="showMeta" class="meta-list">
+          <button
+            v-for="mg in store.metaGoals"
+            :key="mg.id"
+            class="nav-item meta-item"
+            :class="{ active: store.activeProjectId === mg.id }"
+            @click="store.activeProjectId = mg.id; emit('close')"
+          >
+            <span class="meta-color-dot" :style="{ background: mg.color }" />
+            <span class="truncate">{{ mg.title }}</span>
+            <span class="nav-count">{{ store.metaGoalChildCount(mg.id) }}</span>
+          </button>
+        </div>
+      </div>
 
       <!-- Projects — drop zones to assign project -->
       <div
@@ -346,6 +373,38 @@ const vDropZone = {
 .nav-delete:hover {
   opacity: 1 !important;
   color: var(--priority-high);
+}
+
+/* Meta-goals section */
+.meta-section {
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  padding-top: 4px;
+}
+.meta-header {
+  font-weight: 500;
+}
+.meta-chevron {
+  margin-left: auto;
+  font-size: 0.7rem;
+  transition: transform var(--transition);
+}
+.meta-chevron.open {
+  transform: rotate(90deg);
+}
+.meta-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.meta-item {
+  padding-left: 28px;
+}
+.meta-color-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 .sidebar-section {

@@ -199,6 +199,10 @@ function createRootNode() {
   store.createGraphTask({ title: 'Новая цель', pos: { x: 200, y: 80 } })
 }
 
+function createMetaGoalNode() {
+  store.addTask({ title: 'Новая метацель', type: 'meta', color: '#4f46e5', onGraph: true })
+}
+
 // #2 — Auto-layout: force dagre positions → write directly to nodes + persist
 function autoLayout() {
   const tasks = visibleTasks.value
@@ -254,6 +258,7 @@ onUnmounted(() => document.removeEventListener('click', onOutsideClick))
     <!-- Toolbar -->
     <div class="graph-toolbar">
       <button class="tb-btn" @click="createRootNode">✚ Цель</button>
+      <button class="tb-btn tb-meta" @click="createMetaGoalNode">🎯 Метацель</button>
       <button class="tb-btn" @click="autoLayout">⤢ Авто-раскладка</button>
       <div class="tb-add-wrapper">
         <button
@@ -387,6 +392,9 @@ onUnmounted(() => document.removeEventListener('click', onOutsideClick))
 }
 .tb-btn.active {
   background: var(--accent-bg);
+  color: var(--accent);
+}
+.tb-meta {
   color: var(--accent);
 }
 

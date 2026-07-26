@@ -10,6 +10,9 @@ function ensureUpdatedAt(item) {
   if (!Array.isArray(item.parentIds)) item.parentIds = []
   if (!('graphPos' in item)) item.graphPos = null
   if (!('onGraph' in item)) item.onGraph = false
+  // Meta-goal migration
+  if (!item.type) item.type = 'task'
+  if (!('color' in item)) item.color = null
   return item
 }
 
@@ -146,6 +149,33 @@ export const useTasksStore = defineStore('tasks', () => {
       return [...a.overdue, ...a.timed, ...a.untimed]
     }
 
+    // Meta-goal view: show tasks linked to this meta-goal
+    if (activeProjectId.value && metaGoals.value.some(m => m.id === activeProjectId.value)) {
+      list = list.filter(t => t.parentIds?.includes(activeProjectId.value))
+      if (filterStatus.value === 'active') {
+        list = list.filter(t => !t.completed)
+      } else if (filterStatus.value === 'completed') {
+        list = list.filter(t => t.completed)
+      }
+      return [...list].sort((a, b) => {
+        switch (sortBy.value) {
+          case 'due':
+            if (!a.dueDate && !b.dueDate) return 0
+            if (!a.dueDate) return 1
+            if (!b.dueDate) return -1
+            return a.dueDate.localeCompare(b.dueDate)
+          case 'priority':
+            return (b.priority ?? 1) - (a.priority ?? 1)
+          case 'name':
+            return a.title.localeCompare(b.title, 'ru')
+          case 'created':
+            return (b.createdAt ?? '').localeCompare(a.createdAt ?? '')
+          default:
+            return (a.order ?? 0) - (b.order ?? 0)
+        }
+      })
+    }
+
     if (activeProjectId.value) {
       list = list.filter(t => t.projectId === activeProjectId.value)
     }
@@ -187,6 +217,14 @@ export const useTasksStore = defineStore('tasks', () => {
     tasks.value.filter(t => t.recurring && !t.completed)
   )
 
+  const metaGoals = computed(() =>
+    tasks.value.filter(t => t.type === 'meta')
+  )
+
+  function metaGoalChildCount(id) {
+    return tasks.value.filter(t => t.parentIds?.includes(id) && t.type !== 'meta').length
+  }
+
   const taskCountByProject = computed(() => {
     const m = {}
     for (const t of tasks.value) {
@@ -207,6 +245,8 @@ export const useTasksStore = defineStore('tasks', () => {
     if (activeProjectId.value === 'graph') {
       return { id: 'graph', name: 'Карта целей' }
     }
+    const meta = metaGoals.value.find(m => m.id === activeProjectId.value)
+    if (meta) return { id: meta.id, name: meta.title, color: meta.color, isMeta: true }
     return projects.value.find(p => p.id === activeProjectId.value)
   })
 
@@ -257,6 +297,8 @@ export const useTasksStore = defineStore('tasks', () => {
       id: uid(),
       title: data.title,
       description: data.description ?? '',
+      type: data.type ?? 'task',
+      color: data.color ?? null,
       projectId: data.projectId ?? (projId && !['recurring','today','graph'].includes(projId) ? projId : null),
       priority: data.priority ?? 1,
       dueDate: data.dueDate ?? null,
@@ -330,6 +372,7 @@ export const useTasksStore = defineStore('tasks', () => {
     const idx = tasks.value.findIndex(t => t.id === id)
     if (idx === -1) return
     const task = tasks.value[idx]
+    if (task.type === 'meta') return
 
     if (task.recurring && !task.completed) {
       const nextDate = getNextDueDate(task)
@@ -503,6 +546,8 @@ export const useTasksStore = defineStore('tasks', () => {
     draggingTaskId,
     filteredTasks,
     recurringTasks,
+    metaGoals,
+    metaGoalChildCount,
     activeProject,
     agenda,
     stats,

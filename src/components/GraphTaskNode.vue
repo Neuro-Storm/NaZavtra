@@ -32,6 +32,8 @@ const isOverdue = computed(() => {
   return task.value.dueDate.slice(0, 10) < localDateStr(new Date())
 })
 
+const isMeta = computed(() => task.value.type === 'meta')
+
 const dueDateFormatted = computed(() => {
   if (!task.value.dueDate) return null
   return task.value.dueDate.slice(5).replace('-', '.')
@@ -54,24 +56,30 @@ function removeFromGraph() {
 </script>
 
 <template>
-  <div class="graph-node" :class="{ completed: task.completed }">
+  <div
+    class="graph-node"
+    :class="{ completed: task.completed, 'is-meta': isMeta }"
+    :style="isMeta && task.color ? { '--meta-color': task.color, '--meta-bg': task.color + '22' } : {}"
+  >
     <!-- Priority colour stripe -->
-    <div class="priority-stripe" :style="{ background: priorityColor }" />
+    <div v-if="!isMeta" class="priority-stripe" :style="{ background: priorityColor }" />
 
     <!-- Incoming connection handle -->
     <Handle type="target" :position="Position.Top" class="graph-handle" />
 
     <div class="node-inner">
-      <!-- Checkbox -->
-      <label class="node-check" @click.stop>
+      <!-- Checkbox (hidden for meta-goals) -->
+      <label v-if="!isMeta" class="node-check" @click.stop>
         <input type="checkbox" :checked="task.completed" @change="toggle" />
         <span class="checkmark" />
       </label>
 
       <!-- Content -->
       <div class="node-body" @dblclick.stop="emit('edit', task.id)">
-        <div class="node-title" :class="{ done: task.completed }">{{ task.title }}</div>
-        <div class="node-meta" v-if="project || childCount > 0 || task.dueDate">
+        <div class="node-title" :class="{ done: task.completed }">
+          <span v-if="isMeta" class="meta-icon">🎯</span>{{ task.title }}
+        </div>
+        <div class="node-meta" v-if="!isMeta && (project || childCount > 0 || task.dueDate)">
           <span
             v-if="project"
             class="meta-dot"
@@ -86,6 +94,9 @@ function removeFromGraph() {
             class="meta-chip due-chip"
             :class="{ overdue: isOverdue }"
           >{{ dueDateFormatted }}</span>
+        </div>
+        <div class="node-meta" v-if="isMeta && childCount > 0">
+          <span class="meta-chip children-chip">{{ childCount }} ↓</span>
         </div>
       </div>
 
@@ -117,6 +128,20 @@ function removeFromGraph() {
 }
 .graph-node.completed {
   opacity: 0.45;
+}
+
+/* Meta-goal styling */
+.graph-node.is-meta {
+  border-radius: 999px;
+  border: 2px solid var(--meta-color, var(--accent));
+  background: var(--meta-bg, var(--accent-bg));
+}
+.graph-node.is-meta:hover {
+  border-color: var(--meta-color, var(--accent));
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 0 0 3px var(--meta-bg, var(--accent-bg));
+}
+.meta-icon {
+  margin-right: 3px;
 }
 
 /* Priority colour strip at top */

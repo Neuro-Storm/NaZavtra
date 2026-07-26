@@ -22,6 +22,9 @@ const errorMsg = ref('')
 const titleRef = ref(null)
 
 const onGraph = ref(false)
+const isMeta = ref(false)
+const metaColor = ref('#4f46e5')
+const metaColors = ['#4f46e5', '#ef4444', '#f59e0b', '#22c55e', '#06b6d4', '#8b5cf6', '#ec4899']
 
 const recurringType = ref(null)
 const recurringInterval = ref(1)
@@ -100,6 +103,8 @@ watch(() => props.task, (task) => {
     dueDate.value = task.dueDate ? task.dueDate.slice(0, 10) : ''
     subtasks.value = task.subtasks?.map(s => ({ ...s })) ?? []
     onGraph.value = task.onGraph ?? false
+    isMeta.value = task.type === 'meta'
+    metaColor.value = task.color ?? '#4f46e5'
     if (task.recurring) {
       recurringType.value = task.recurring.type
       recurringInterval.value = task.recurring.interval ?? 1
@@ -118,6 +123,8 @@ watch(() => props.task, (task) => {
     dueDate.value = ''
     subtasks.value = []
     onGraph.value = false
+    isMeta.value = false
+    metaColor.value = '#4f46e5'
     clearRecurring()
   }
   nextTick(() => titleRef.value?.focus())
@@ -145,12 +152,14 @@ function handleSubmit() {
   const data = {
     title: title.value.trim(),
     description: description.value.trim(),
+    type: isMeta.value ? 'meta' : 'task',
+    color: isMeta.value ? metaColor.value : null,
     priority: priority.value,
     projectId: projectId.value,
-    dueDate: dueDate.value || null,
+    dueDate: isMeta.value ? null : (dueDate.value || null),
     subtasks: subtasks.value,
-    recurring: recurringObject.value,
-    onGraph: onGraph.value,
+    recurring: isMeta.value ? null : recurringObject.value,
+    onGraph: isMeta.value ? true : onGraph.value,
   }
 
   if (isEditing.value) {
@@ -163,6 +172,10 @@ function handleSubmit() {
 }
 
 watch(dueDate, () => { errorMsg.value = '' })
+
+watch(isMeta, (val) => {
+  if (val) onGraph.value = true
+})
 
 function handleBackdropClick(e) {
   if (e.target === e.currentTarget) emit('close')
@@ -191,7 +204,7 @@ function handleBackdropClick(e) {
           />
         </div>
 
-        <div class="field-row">
+        <div class="field-row" v-if="!isMeta">
           <div class="field">
             <label class="label">Приоритет</label>
             <select v-model="priority" class="input">
@@ -205,6 +218,15 @@ function handleBackdropClick(e) {
             <input v-model="dueDate" class="input" type="date" />
             <span v-if="errorMsg" class="field-error">{{ errorMsg }}</span>
           </div>
+        </div>
+
+        <div class="field" v-if="isMeta">
+          <label class="label">Приоритет</label>
+          <select v-model="priority" class="input">
+            <option :value="0">Низкий</option>
+            <option :value="1">Средний</option>
+            <option :value="2">Высокий</option>
+          </select>
         </div>
 
         <div class="field">
@@ -227,7 +249,30 @@ function handleBackdropClick(e) {
           <span class="toggle-text">🗺️ Показать на карте целей</span>
         </label>
 
-        <div class="field">
+        <label class="graph-toggle">
+          <span class="toggle-track" :class="{ on: isMeta }">
+            <span class="toggle-thumb" />
+          </span>
+          <input type="checkbox" v-model="isMeta" class="sr-only" />
+          <span class="toggle-text">🎯 Метацель</span>
+        </label>
+
+        <div v-if="isMeta" class="color-picker">
+          <span class="sublabel">Цвет</span>
+          <div class="color-options">
+            <button
+              v-for="c in metaColors"
+              :key="c"
+              type="button"
+              class="color-dot"
+              :class="{ active: metaColor === c }"
+              :style="{ background: c }"
+              @click="metaColor = c"
+            />
+          </div>
+        </div>
+
+        <div class="field" v-if="!isMeta">
           <label class="label">Повтор</label>
           <div class="recurring-presets">
             <button
@@ -637,6 +682,33 @@ select.input {
   cursor: pointer;
   user-select: none;
   padding: 2px 0;
+}
+
+/* Color picker for meta-goals */
+.color-picker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 0;
+}
+.color-options {
+  display: flex;
+  gap: 6px;
+}
+.color-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.color-dot:hover {
+  transform: scale(1.15);
+}
+.color-dot.active {
+  border-color: var(--text-primary);
+  box-shadow: 0 0 0 2px var(--bg);
 }
 .sr-only {
   position: absolute;
